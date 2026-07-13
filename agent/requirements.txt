@@ -1,0 +1,7 @@
+psutil==6.0.0
+requests==2.32.3
+websockets==13.1
+pyautogui==0.9.54
+pyperclip==1.9.0
+plyer==2.1.0
+pywin32>=306; sys_platform == "win32"

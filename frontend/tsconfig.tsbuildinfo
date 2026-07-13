@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/api/client.ts","./src/components/commandbuttons.tsx","./src/components/machinecard.tsx","./src/hooks/useauth.ts","./src/hooks/usemachines.ts","./src/pages/dashboard.tsx","./src/pages/login.tsx","./src/pages/register.tsx"],"errors":true,"version":"5.9.3"}
