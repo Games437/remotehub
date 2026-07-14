@@ -92,3 +92,24 @@ export function usePurgeCommandResult(machineId: string) {
     },
   });
 }
+
+export interface AuditLogEntry {
+  id: string;
+  action: string;
+  resource: string | null;
+  ip_address: string | null;
+  result: "success" | "failure";
+  detail: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export function useAuditLogs() {
+  return useQuery({
+    queryKey: ["audit-logs"],
+    queryFn: async () => {
+      const { data } = await api.get<AuditLogEntry[]>("/audit-logs");
+      return data;
+    },
+    refetchInterval: 15_000,
+  });
+}

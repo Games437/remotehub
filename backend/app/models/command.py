@@ -15,11 +15,17 @@ class CommandType(str, enum.Enum):
     play_music = "play_music"
     shutdown = "shutdown"
     restart = "restart"
+    cancel_shutdown = "cancel_shutdown"
     sleep = "sleep"
     lock = "lock"
     screenshot = "screenshot"
     notification = "notification"
     clipboard = "clipboard"
+    get_idle_time = "get_idle_time"
+    list_processes = "list_processes"
+    get_active_window = "get_active_window"
+    list_open_windows = "list_open_windows"
+    get_network_status = "get_network_status"
 
 
 class CommandStatus(str, enum.Enum):

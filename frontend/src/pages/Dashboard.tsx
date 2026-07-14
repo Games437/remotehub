@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { logout } from "../hooks/useAuth";
 import { useGeneratePairCode, useMachines } from "../hooks/useMachines";
 import MachineCard from "../components/MachineCard";
@@ -67,7 +68,13 @@ export default function Dashboard() {
             {machines?.length ?? 0} machine{machines?.length === 1 ? "" : "s"} connected
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex items-center gap-3">
+          <Link to="/help" className="text-sm text-muted hover:text-text transition">
+            Help / Download
+          </Link>
+          <Link to="/activity" className="text-sm text-muted hover:text-text transition">
+            Activity log
+          </Link>
           <button
             className="bg-accent rounded-lg px-4 py-2 text-sm font-medium"
             onClick={() => setShowAdd(true)}

@@ -135,6 +135,26 @@ def _report_status(state: str) -> None:
             pass  # never let a broken GUI callback take down the agent loop
 
 
+def _capture_debug_screenshot() -> dict | None:
+    """Best-effort screenshot taken automatically when a command fails —
+    same capture method as the screenshot command itself, so it works
+    wherever that does. Never raises; returns None on any failure."""
+    try:
+        from PIL import ImageGrab
+        import io
+        import base64
+
+        img = ImageGrab.grab()
+        buffer = io.BytesIO()
+        img.save(buffer, format="PNG")
+        return {
+            "debug_screenshot_b64": base64.b64encode(buffer.getvalue()).decode("utf-8"),
+            "debug_screenshot_format": "png",
+        }
+    except Exception:
+        return None
+
+
 async def _handle_command(ws, secret: str, msg: dict) -> None:
     command_type = msg["command_type"]
     ok, reason = verify_command(secret, command_type, msg["timestamp"], msg["nonce"], msg["signature"])
@@ -177,6 +197,14 @@ async def _handle_command(ws, secret: str, msg: dict) -> None:
         except Exception as exc:
             result = {"error": str(exc)}
             success = False
+
+    if not success and command_type != "screenshot":
+        # No live view means the operator can't see what state the screen
+        # was in when this went wrong — grab one automatically so they don't
+        # have to guess, then decide whether to send a follow-up command.
+        debug_shot = _capture_debug_screenshot()
+        if debug_shot:
+            result.update(debug_shot)
 
     # ส่งก้อนผลลัพธ์ที่มีก้อนภาพหลุดกลับไปให้เซิร์ฟเวอร์
     await ws.send(json.dumps({"type": "ack", "command_id": msg["command_id"], "success": success, "result": result}))

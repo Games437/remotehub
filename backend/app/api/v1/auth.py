@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.security import (
+    create_2fa_setup_token,
     create_access_token,
     create_refresh_token,
     decode_token,
@@ -17,8 +18,10 @@ from app.db.database import get_db
 from app.models.user import User
 from app.schemas.auth import (
     Confirm2FARequest,
+    Confirm2FASetupRequest,
     Enable2FAResponse,
     LoginRequest,
+    LoginResponse,
     RefreshRequest,
     RegisterRequest,
     ResetPasswordConfirm,
@@ -66,7 +69,7 @@ def verify_email(body: VerifyEmailRequest, db: Session = Depends(get_db)):
     db.commit()
 
 
-@router.post("/login", response_model=TokenPair)
+@router.post("/login", response_model=LoginResponse)
 def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == body.email).first()
     ip = _client_ip(request)
@@ -75,12 +78,61 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
         log_event(db, user_id=None, action="login", ip_address=ip, result="failure", detail={"email": body.email})
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
 
-    if user.totp_enabled:
-        if not body.totp_code or not pyotp.TOTP(user.totp_secret).verify(body.totp_code, valid_window=1):
-            log_event(db, user_id=str(user.id), action="login_2fa", ip_address=ip, result="failure")
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing 2FA code")
+    # Layer 10 — 2FA is mandatory for every account now, not opt-in. Anyone
+    # who hasn't finished enrollment yet gets a setup challenge here instead
+    # of a normal token pair; they complete it via /2fa/setup-confirm before
+    # they're actually logged in.
+    if not user.totp_enabled:
+        if not user.totp_secret:
+            user.totp_secret = pyotp.random_base32()
+            db.commit()
+        log_event(db, user_id=str(user.id), action="login_2fa_setup_required", ip_address=ip)
+        return LoginResponse(
+            requires_2fa_setup=True,
+            setup_token=create_2fa_setup_token(str(user.id)),
+            secret=user.totp_secret,
+            otpauth_url=pyotp.TOTP(user.totp_secret).provisioning_uri(name=user.email, issuer_name="RemoteHub"),
+        )
+
+    if not body.totp_code or not pyotp.TOTP(user.totp_secret).verify(body.totp_code, valid_window=1):
+        log_event(db, user_id=str(user.id), action="login_2fa", ip_address=ip, result="failure")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing 2FA code")
 
     log_event(db, user_id=str(user.id), action="login", ip_address=ip)
+    return LoginResponse(
+        access_token=create_access_token(str(user.id)),
+        refresh_token=create_refresh_token(str(user.id)),
+    )
+
+
+@router.post("/2fa/setup-confirm", response_model=TokenPair)
+def confirm_2fa_setup(body: Confirm2FASetupRequest, db: Session = Depends(get_db)):
+    """Completes mandatory 2FA enrollment right after a fresh login that came
+    back with requires_2fa_setup=True. Only then does the account actually
+    get logged in."""
+    try:
+        payload = decode_token(body.setup_token)
+        if payload.get("type") != "2fa_setup":
+            raise ValueError("wrong token type")
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Setup session expired or invalid — please log in again",
+        )
+
+    user = db.query(User).filter(User.id == payload["sub"]).first()
+    if not user or not user.totp_secret:
+        raise HTTPException(status_code=400, detail="No 2FA setup in progress for this account")
+    if user.totp_enabled:
+        raise HTTPException(status_code=400, detail="2FA is already enabled on this account")
+
+    if not pyotp.TOTP(user.totp_secret).verify(body.totp_code, valid_window=1):
+        raise HTTPException(status_code=400, detail="Invalid 2FA code")
+
+    user.totp_enabled = True
+    db.commit()
+    log_event(db, user_id=str(user.id), action="2fa_enabled")
+
     return TokenPair(
         access_token=create_access_token(str(user.id)),
         refresh_token=create_refresh_token(str(user.id)),

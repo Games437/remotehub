@@ -6,9 +6,23 @@ platforms rather than silently doing nothing.
 import platform
 import subprocess
 
+DEFAULT_GRACE_SECONDS = 60
+
 
 def _is_windows() -> bool:
     return platform.system() == "Windows"
+
+
+def _notify_local(title: str, message: str) -> None:
+    """Best-effort local toast — used so the person at the keyboard (if any)
+    sees this coming, since the operator sending the command has no live
+    view of the screen to warn them any other way."""
+    try:
+        from plyer import notification
+
+        notification.notify(title=title, message=message, app_name="RemoteHub")
+    except Exception:
+        pass  # notification is a courtesy, never block the actual action on it
 
 
 def lock() -> dict:
@@ -20,17 +34,35 @@ def lock() -> dict:
     return {"ok": True}
 
 
-def shutdown() -> dict:
+def shutdown(payload: dict | None = None) -> dict:
     if not _is_windows():
         return {"ok": False, "error": "shutdown() is implemented for Windows only"}
-    subprocess.run(["shutdown", "/s", "/t", "0"], check=False)
-    return {"ok": True}
+    delay = int((payload or {}).get("delay_seconds", DEFAULT_GRACE_SECONDS))
+    _notify_local("RemoteHub", f"This computer will shut down in {delay} seconds. "
+                                f"Save your work now — an admin can still cancel it remotely.")
+    subprocess.run(["shutdown", "/s", "/t", str(delay)], check=False)
+    return {"ok": True, "delay_seconds": delay}
 
 
-def restart() -> dict:
+def restart(payload: dict | None = None) -> dict:
     if not _is_windows():
         return {"ok": False, "error": "restart() is implemented for Windows only"}
-    subprocess.run(["shutdown", "/r", "/t", "0"], check=False)
+    delay = int((payload or {}).get("delay_seconds", DEFAULT_GRACE_SECONDS))
+    _notify_local("RemoteHub", f"This computer will restart in {delay} seconds. "
+                                f"Save your work now — an admin can still cancel it remotely.")
+    subprocess.run(["shutdown", "/r", "/t", str(delay)], check=False)
+    return {"ok": True, "delay_seconds": delay}
+
+
+def cancel_shutdown() -> dict:
+    """Cancels a pending shutdown/restart scheduled by the two functions above."""
+    if not _is_windows():
+        return {"ok": False, "error": "cancel_shutdown() is implemented for Windows only"}
+    result = subprocess.run(["shutdown", "/a"], check=False, capture_output=True, text=True)
+    if result.returncode != 0:
+        # exit code 1116 means "no shutdown was in progress" — not a real failure
+        return {"ok": True, "note": "no shutdown/restart was pending"}
+    _notify_local("RemoteHub", "The scheduled shutdown/restart was cancelled.")
     return {"ok": True}
 
 
