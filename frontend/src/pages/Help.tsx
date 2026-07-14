@@ -44,13 +44,8 @@ export default function Help() {
             กับที่ใช้บนเว็บไซต์นี้
           </li>
           <li>
-            ถ้าเป็นการล็อกอินครั้งแรกจากเครื่องนี้ ระบบจะ{" "}
-            <strong className="text-text">บังคับให้ตั้งค่า 2FA แบบ 6 หลัก</strong>{" "}
-            ก่อนเข้าใช้งานได้ (ดูรายละเอียดหัวข้อ 2FA ด้านล่าง)
-          </li>
-          <li>
-            เมื่อล็อกอินสำเร็จ เครื่องนี้จะลงทะเบียนตัวเองเป็นเครื่องใหม่โดยอัตโนมัติ
-            — ไม่ต้องใช้ pairing code
+            ถ้าเป็นการล็อกอินครั้งแรกจากเครื่องนี้ เครื่องจะลงทะเบียนตัวเองเป็น
+            เครื่องใหม่โดยอัตโนมัติ — ไม่ต้องใช้ pairing code
           </li>
           <li>
             หลังล็อกอินแล้ว สามารถย่อหน้าต่างหรือปิดลง tray ได้ ตัว Agent จะยังทำงาน
@@ -66,37 +61,9 @@ export default function Help() {
         </p>
       </section>
 
-      {/* --- ยืนยันตัวตน 2 ขั้นตอน (บังคับ) ------------------------- */}
-      <section className="bg-panel border border-line rounded-xl p-6">
-        <h2 className="font-medium mb-2">3. ยืนยันตัวตน 2 ขั้นตอน (2FA) — บังคับทุกบัญชี</h2>
-        <p className="text-sm text-muted mb-3">
-          ทุกบัญชีต้องเปิดใช้ 2FA แบบรหัส 6 หลัก (TOTP) ก่อนจึงจะเข้าใช้งานได้
-          เพราะโปรแกรมนี้ควบคุมเครื่องคอมพิวเตอร์จริงได้ (ปิดเครื่อง, เปิดโปรแกรม,
-          ถ่ายภาพหน้าจอ ฯลฯ) จึงจำเป็นต้องป้องกันบัญชีให้แน่นหนากว่ารหัสผ่านอย่างเดียว
-        </p>
-        <ol className="list-decimal list-inside text-sm space-y-2 text-muted">
-          <li>
-            เมื่อล็อกอินครั้งแรกที่ยังไม่เคยตั้ง 2FA ระบบจะแสดง QR code และรหัสลับ
-            (secret key) ให้ทันที
-          </li>
-          <li>
-            สแกน QR code นั้นด้วยแอปยืนยันตัวตน เช่น Google Authenticator, Authy,
-            หรือ Microsoft Authenticator
-          </li>
-          <li>
-            กรอกรหัส 6 หลักที่แอปแสดงขึ้นมา เพื่อยืนยันว่าตั้งค่าสำเร็จ — หลังจากนั้น
-            ทุกครั้งที่ล็อกอินจะต้องกรอกรหัส 6 หลักนี้ควบคู่กับรหัสผ่านเสมอ
-          </li>
-        </ol>
-        <p className="text-xs text-muted mt-4">
-          หากทำแอปยืนยันตัวตนหาย ให้ติดต่อผู้ดูแลระบบเพื่อรีเซ็ต 2FA ให้ — ระบบไม่มี
-          backup code ในตอนนี้
-        </p>
-      </section>
-
       {/* --- การใช้งาน dashboard ----------------------------------------- */}
       <section className="bg-panel border border-line rounded-xl p-6">
-        <h2 className="font-medium mb-2">4. การใช้งาน Dashboard</h2>
+        <h2 className="font-medium mb-2">3. การใช้งาน Dashboard</h2>
         <div className="space-y-4 text-sm">
           <div>
             <p className="font-medium text-text">การส่งคำสั่ง</p>
@@ -204,13 +171,6 @@ export default function Help() {
               คลิก "More info" → "Run anyway" เหตุการณ์นี้เกิดขึ้นเพราะ agent ยังไม่ได้
               เซ็นด้วยใบรับรองแบบเสียเงิน (code-signing) ตัวไฟล์เองไม่มีการเปลี่ยนแปลง
               ระหว่างการดาวน์โหลดแต่ละครั้ง
-            </p>
-          </div>
-          <div>
-            <p className="font-medium text-text">ทำแอปยืนยันตัวตน (2FA) หาย เข้าระบบไม่ได้</p>
-            <p className="text-muted">
-              ระบบยังไม่มี backup code ในตอนนี้ ให้ติดต่อผู้ดูแลระบบเพื่อรีเซ็ตค่า 2FA
-              ของบัญชีให้ แล้วจะสามารถตั้งค่าใหม่ได้ตอนล็อกอินครั้งถัดไป
             </p>
           </div>
         </div>

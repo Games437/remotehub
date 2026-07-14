@@ -53,14 +53,6 @@ def create_refresh_token(user_id: str) -> str:
     return _create_token(user_id, timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS), "refresh")
 
 
-def create_2fa_setup_token(user_id: str) -> str:
-    """Short-lived token issued right after password verification, when the
-    account still needs to complete mandatory 2FA enrollment. Deliberately
-    not an access token — it only proves "you just entered the right
-    password", not "you're fully logged in"."""
-    return _create_token(user_id, timedelta(minutes=10), "2fa_setup")
-
-
 def decode_token(token: str) -> dict:
     """Raises jwt.PyJWTError on failure — caller should turn that into a 401."""
     return jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])

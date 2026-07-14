@@ -20,6 +20,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Total-Count"],  # so the frontend can read pagination totals cross-origin
 )
 
 app.include_router(api_router)
@@ -31,6 +32,20 @@ def on_startup() -> None:
     # For a real deployment, replace this with Alembic migrations
     # (`alembic upgrade head`) run as a separate release step.
     Base.metadata.create_all(bind=engine)
+
+    # A fresh process has zero live agent connections by definition — any
+    # machine row still marked "online" from before this restart is stale
+    # (the previous process was killed before its websocket cleanup ran).
+    # Reset it here so nothing shows a false "online" badge before the
+    # agent reconnects.
+    from sqlalchemy.orm import Session
+    from app.models.machine import Machine, MachineStatus
+
+    with Session(engine) as db:
+        db.query(Machine).filter(Machine.status == MachineStatus.online).update(
+            {Machine.status: MachineStatus.offline}
+        )
+        db.commit()
 
 
 @app.get("/health")

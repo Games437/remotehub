@@ -9,7 +9,7 @@ from app.api.deps import get_current_user, get_machine_or_404, require_role
 from app.core.config import settings
 from app.core.security import generate_agent_secret, generate_pair_code
 from app.db.database import get_db
-from app.models.machine import Machine, MachineAccess, PairingCode, Role
+from app.models.machine import Machine, MachineAccess, MachineStatus, PairingCode, Role
 from app.models.user import User
 from app.schemas.machine import (
     AgentPairRequest,
@@ -21,6 +21,7 @@ from app.schemas.machine import (
     MachineRenameRequest,
 )
 from app.services.audit import log_event
+from app.websocket.manager import manager
 
 from app.schemas.machine import AgentRegisterRequest
 
@@ -32,7 +33,27 @@ def list_machines(user: User = Depends(get_current_user), db: Session = Depends(
     owned = db.query(Machine).filter(Machine.owner_id == user.id)
     shared_ids = [g.machine_id for g in db.query(MachineAccess).filter(MachineAccess.user_id == user.id)]
     shared = db.query(Machine).filter(Machine.id.in_(shared_ids)) if shared_ids else []
-    return list(owned) + list(shared)
+    machines = list(owned) + list(shared)
+
+    # The `status` column only flips back to offline on a *clean* websocket
+    # disconnect (see agent_ws.py's `finally` block). If this backend
+    # process was ever killed abruptly (container restart, crash) while an
+    # agent was connected, that cleanup never ran and the row is stuck on
+    # "online" forever — even though this process's live connection table
+    # (`manager`) has no such connection at all. `manager.is_online()`
+    # reflects what's actually connected right now, so it's the source of
+    # truth for display; reconcile any mismatch (and persist the fix so
+    # direct DB reads elsewhere see it too).
+    dirty = False
+    for machine in machines:
+        live = manager.is_online(machine.id)
+        if machine.status == MachineStatus.online and not live:
+            machine.status = MachineStatus.offline
+            dirty = True
+    if dirty:
+        db.commit()
+
+    return machines
 
 
 @router.post("/pair/generate-code", response_model=GeneratePairCodeResponse)

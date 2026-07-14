@@ -16,10 +16,10 @@ per-user, writable-without-admin location that survives restarts.
 import json
 import os
 
-#SERVER_HTTP_URL = os.environ.get("REMOTEHUB_SERVER_HTTP", "http://localhost:8000")
-#SERVER_WS_URL = os.environ.get("REMOTEHUB_SERVER_WS", "ws://localhost:8000/ws/agent")
-SERVER_HTTP_URL = os.environ.get("REMOTEHUB_SERVER_HTTP", "https://remotehub-backend-1lqx.onrender.com")
-SERVER_WS_URL = os.environ.get("REMOTEHUB_SERVER_WS", "wss://remotehub-backend-1lqx.onrender.com/ws/agent")
+SERVER_HTTP_URL = os.environ.get("REMOTEHUB_SERVER_HTTP", "http://localhost:8000")
+SERVER_WS_URL = os.environ.get("REMOTEHUB_SERVER_WS", "ws://localhost:8000/ws/agent")
+#SERVER_HTTP_URL = os.environ.get("REMOTEHUB_SERVER_HTTP", "https://remotehub-backend-1lqx.onrender.com")
+#SERVER_WS_URL = os.environ.get("REMOTEHUB_SERVER_WS", "wss://remotehub-backend-1lqx.onrender.com/ws/agent")
 
 _DATA_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "RemoteHub")
 os.makedirs(_DATA_DIR, exist_ok=True)
