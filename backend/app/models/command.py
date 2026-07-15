@@ -26,6 +26,9 @@ class CommandType(str, enum.Enum):
     get_active_window = "get_active_window"
     list_open_windows = "list_open_windows"
     get_network_status = "get_network_status"
+    get_system_info = "get_system_info"
+    kill_process = "kill_process"
+    send_message = "send_message"
 
 
 class CommandStatus(str, enum.Enum):

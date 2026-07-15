@@ -97,5 +97,11 @@ async def agent_socket(ws: WebSocket):
             manager.disconnect(machine.id)
             machine.status = MachineStatus.offline
             machine.last_seen = datetime.now(timezone.utc)
+            # Stats reflect a live agent reporting in — once it's gone,
+            # the old numbers are stale and misleading (e.g. "42% CPU"
+            # frozen from 20 minutes ago on a machine that's now off).
+            machine.cpu_percent = 0.0
+            machine.ram_percent = 0.0
+            machine.disk_percent = 0.0
             db.commit()
         db.close()

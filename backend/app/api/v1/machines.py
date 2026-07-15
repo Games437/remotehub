@@ -49,6 +49,9 @@ def list_machines(user: User = Depends(get_current_user), db: Session = Depends(
         live = manager.is_online(machine.id)
         if machine.status == MachineStatus.online and not live:
             machine.status = MachineStatus.offline
+            machine.cpu_percent = 0.0
+            machine.ram_percent = 0.0
+            machine.disk_percent = 0.0
             dirty = True
     if dirty:
         db.commit()

@@ -1,5 +1,6 @@
 import glob
 import os
+import platform
 import shutil
 import subprocess
 import webbrowser
@@ -223,6 +224,65 @@ def notify(payload: dict) -> dict:
         notification.notify(title=title, message=message, app_name="RemoteHub")
     except Exception as exc:  # plyer backend availability varies by OS
         return {"ok": False, "error": str(exc)}
+    return {"ok": True}
+
+
+def send_message(payload: dict) -> dict:
+    """A dialog the user must click OK to dismiss, styled and clearly
+    labeled as coming from an admin — unlike `notify()` above, which is an
+    unstyled toast that disappears on its own whether or not anyone saw it.
+
+    Runs in its own thread rather than blocking here: the native
+    MessageBoxW this used to call blocks the calling thread until the
+    person clicks OK, which could stall this agent's command handling
+    indefinitely if nobody's at the keyboard. This acknowledges as soon as
+    the dialog is *shown*, not once it's dismissed.
+    """
+    if platform.system() != "Windows":
+        return {"ok": False, "error": "send_message() is implemented for Windows only"}
+
+    message = (payload or {}).get("message", "")
+    if not message:
+        return {"ok": False, "error": "payload must include 'message'"}
+
+    def _show_dialog():
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.title("RemoteHub")
+        root.attributes("-topmost", True)
+        root.resizable(False, False)
+        root.configure(bg="#14161b")
+
+        width, height = 380, 200
+        x = (root.winfo_screenwidth() - width) // 2
+        y = (root.winfo_screenheight() - height) // 2
+        root.geometry(f"{width}x{height}+{x}+{y}")
+
+        tk.Label(
+            root, text="Message from Admin", font=("Segoe UI", 13, "bold"),
+            bg="#14161b", fg="#5B8DEF",
+        ).pack(pady=(20, 6), padx=20, anchor="w")
+
+        tk.Label(
+            root, text=message, font=("Segoe UI", 10), bg="#14161b", fg="#E6E8EC",
+            wraplength=336, justify="left",
+        ).pack(pady=(0, 20), padx=20, anchor="w")
+
+        tk.Button(
+            root, text="OK", command=root.destroy, width=10,
+            bg="#5B8DEF", fg="white", activebackground="#4a78d4",
+            relief="flat", font=("Segoe UI", 10), cursor="hand2",
+        ).pack(pady=(0, 20))
+
+        root.mainloop()
+
+    try:
+        import threading
+        threading.Thread(target=_show_dialog, daemon=True).start()
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
     return {"ok": True}
 
 

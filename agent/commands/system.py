@@ -74,3 +74,30 @@ def sleep() -> dict:
     # SetSuspendState(Hibernate=False, Force=False, DisableWakeEvent=False)
     ctypes.windll.powrprof.SetSuspendState(False, True, False)
     return {"ok": True}
+
+
+def kill_process(payload: dict | None = None) -> dict:
+    """payload = {"pid": 1234}. Takes a PID rather than a process name —
+    names collide across instances (a machine can have a dozen chrome.exe
+    processes), a PID is unambiguous."""
+    pid = (payload or {}).get("pid")
+    if pid is None:
+        return {"ok": False, "error": "payload must include 'pid'"}
+
+    try:
+        import psutil
+
+        proc = psutil.Process(int(pid))
+        name = proc.name()
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except psutil.TimeoutExpired:
+            proc.kill()  # didn't exit gracefully — force it
+        return {"ok": True, "pid": int(pid), "name": name}
+    except psutil.NoSuchProcess:
+        return {"ok": False, "error": f"no process with pid {pid} (it may have already exited)"}
+    except psutil.AccessDenied:
+        return {"ok": False, "error": f"access denied terminating pid {pid} (needs admin rights)"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}

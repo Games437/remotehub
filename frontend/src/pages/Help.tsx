@@ -68,8 +68,12 @@ export default function Help() {
           <div>
             <p className="font-medium text-text">การส่งคำสั่ง</p>
             <p className="text-muted">
-              การ์ดของแต่ละเครื่องจะมีปุ่มคำสั่งที่รองรับ เครื่องต้องขึ้นสถานะ
-              "Online" ก่อนถึงจะส่งคำสั่งได้ — ถ้ายังออฟไลน์อยู่ปุ่มจะกดไม่ได้
+              การ์ดของแต่ละเครื่องแบ่งปุ่มคำสั่งเป็น 3 หมวดแบบ tab —{" "}
+              <strong className="text-text">Actions</strong>,{" "}
+              <strong className="text-text">Status</strong>, และ{" "}
+              <strong className="text-text">Power</strong> — คลิกชื่อหมวดเพื่อสลับดู
+              ปุ่มในหมวดนั้น เครื่องต้องขึ้นสถานะ "Online" ก่อนถึงจะส่งคำสั่งได้ —
+              ถ้ายังออฟไลน์อยู่ปุ่มจะกดไม่ได้
             </p>
           </div>
 
@@ -79,9 +83,11 @@ export default function Help() {
               <li><span className="text-text">Open website</span> — เปิดเว็บไซต์ตาม URL ที่กรอก</li>
               <li><span className="text-text">Open program</span> — เปิดโปรแกรมตาม path ที่กรอก (เช่น <span className="mono">C:\Path\To\App.exe</span>)</li>
               <li><span className="text-text">Screenshot</span> — ถ่ายภาพหน้าจอปัจจุบัน แล้วดาวน์โหลดมาที่เครื่องคุณอัตโนมัติ ไม่เก็บไว้บนเซิร์ฟเวอร์</li>
-              <li><span className="text-text">Lock</span> — ล็อกหน้าจอเครื่องปลายทางทันที</li>
-              <li><span className="text-text">Sleep</span> — สั่งให้เครื่องเข้าโหมดพักเครื่อง (sleep)</li>
+              <li><span className="text-text">Send message</span> — เด้งกล่องข้อความสไตล์ RemoteHub ค้างบนหน้าจอปลายทางจนกว่าจะกด OK พร้อมป้าย "Message from Admin" ให้รู้ว่าใครส่ง ต่างจาก notification ทั่วไปที่หายไปเองโดยไม่รู้ว่ามีคนเห็นหรือเปล่า</li>
+              <li><span className="text-text">Lock</span> — ล็อกหน้าจอเครื่องปลายทางทันที (มี modal ยืนยันก่อนส่ง)</li>
+              <li><span className="text-text">Sleep</span> — สั่งให้เครื่องเข้าโหมดพักเครื่อง (sleep) (มี modal ยืนยันก่อนส่ง)</li>
               <li><span className="text-text">Restart / Shutdown</span> — รีสตาร์ท/ปิดเครื่อง (มีช่วงเวลาเผื่อไว้ ดูหัวข้อด้านล่าง)</li>
+              <li><span className="text-text">Kill process</span> — ปิดโปรแกรมที่ค้าง/แฮงค์จากระยะไกล วิธีง่ายสุดคือกดปุ่ม "Kill" ตรงแถวโปรแกรมนั้นในผลลัพธ์ของ <span className="text-text">Processes</span> เลย (ระบุ PID ให้อัตโนมัติ) หรือพิมพ์ PID เองก็ได้ถ้ารู้อยู่แล้ว มี modal ยืนยันก่อนส่งเสมอ</li>
             </ul>
           </div>
 
@@ -112,7 +118,15 @@ export default function Help() {
                 <span className="text-text">Network status</span> — เช็คว่าเครื่องปลายทางยังต่อ
                 อินเทอร์เน็ตได้ปกติไหม พร้อมค่า latency คร่าวๆ
               </li>
+              <li>
+                <span className="text-text">System info</span> — สเปคเครื่อง (CPU รุ่นจริง, การ์ดจอ,
+                RAM, OS, uptime) พร้อมพื้นที่ดิสก์แต่ละไดรฟ์ ข้อมูลนี้แทบไม่เปลี่ยน ไม่ต้องเช็คบ่อย
+              </li>
             </ul>
+            <p className="text-muted text-xs mt-2">
+              ปุ่มกลุ่มนี้กดซ้ำที่ปุ่มเดิมอีกครั้งเพื่อ<strong className="text-text">ย่อผลลัพธ์ที่แสดงอยู่</strong>ได้เลย
+              โดยไม่ต้องกดปุ่ม Close — กดซ้ำอีกทีถัดไปจะรันคำสั่งใหม่และแสดงผลอีกครั้ง
+            </p>
           </div>
 
           <div>
@@ -121,7 +135,8 @@ export default function Help() {
               เมื่อกดคำสั่งใดคำสั่งหนึ่ง เครื่องปลายทางจะได้รับการแจ้งเตือนล่วงหน้า
               60 วินาที (ขึ้นเป็น notification บนหน้าจอนั้น) ก่อนจะปิด/รีสตาร์ทจริง
               — เพียงพอให้ผู้ใช้ที่อยู่หน้าเครื่อง save งานทัน ระหว่างช่วงเวลานี้จะมีปุ่ม{" "}
-              <span className="text-danger">Cancel</span> ขึ้นมาบนการ์ด หากเปลี่ยนใจ
+              <span className="text-danger">Cancel</span> ขึ้นมาบนการ์ด พร้อมตัวเลขนับถอยหลัง
+              วินาทีจริงให้เห็น หากเปลี่ยนใจ
             </p>
           </div>
 
@@ -132,6 +147,17 @@ export default function Help() {
               "Download screen at time of failure" ขึ้นมาด้วย — เป็นภาพหน้าจอที่
               ถ่ายอัตโนมัติ ณ ขณะที่คำสั่งล้มเหลว ทำให้เห็นว่าหน้าจอเป็นอย่างไร
               โดยไม่ต้องสั่ง Screenshot ล่วงหน้าเอง
+            </p>
+          </div>
+
+          <div>
+            <p className="font-medium text-text">History</p>
+            <p className="text-muted">
+              ปุ่ม History อยู่ข้างๆ ปุ่มคำสั่งต่างๆ กดแล้วโชว์{" "}
+              <strong className="text-text">ประวัติคำสั่งทั้งหมดที่เคยส่งไปเครื่องนั้น</strong>{" "}
+              (ชื่อคำสั่ง, สถานะ, เวลา) แบ่งหน้าทีละ 20 รายการเลื่อนดูก่อนหน้า/ถัดไปได้
+              — ไม่ได้ส่งคำสั่งอะไรไปที่เครื่อง แค่ดึงประวัติที่มีอยู่แล้วมาโชว์ กดปุ่มซ้ำ
+              เพื่อย่อได้เหมือนปุ่มกลุ่ม Idle time/Processes ด้านบน
             </p>
           </div>
 

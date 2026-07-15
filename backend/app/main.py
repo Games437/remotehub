@@ -67,7 +67,12 @@ def on_startup() -> None:
 
     with Session(engine) as db:
         db.query(Machine).filter(Machine.status == MachineStatus.online).update(
-            {Machine.status: MachineStatus.offline}
+            {
+                Machine.status: MachineStatus.offline,
+                Machine.cpu_percent: 0.0,
+                Machine.ram_percent: 0.0,
+                Machine.disk_percent: 0.0,
+            }
         )
         db.commit()
 

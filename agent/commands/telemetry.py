@@ -70,10 +70,14 @@ def list_processes() -> dict:
             "instance_count": 0,
             "memory_percent": 0.0,
             "cpu_percent": 0.0,
+            "pids": [],
         })
         group["instance_count"] += 1
         group["memory_percent"] += info["memory_percent"] or 0
         group["cpu_percent"] += info["cpu_percent"] or 0
+        # Kept so the dashboard can offer a one-click "kill" per instance
+        # instead of making someone go find and type a PID by hand.
+        group["pids"].append(info["pid"])
 
     visible_groups = []
     for key, group in groups.items():
@@ -176,20 +180,145 @@ def get_network_status() -> dict:
     import socket
     import time
 
+    # Virtual/internal adapters (WSL, Hyper-V, Docker's own vEthernet,
+    # loopback, ...) are almost always reported "up" regardless of whether
+    # the machine has real internet access, and picking one of these to
+    # display is misleading — it looks like a real NIC but isn't the actual
+    # route to the internet. Filter them out and prefer a real adapter.
+    _VIRTUAL_ADAPTER_MARKERS = (
+        "loopback", "vethernet", "wsl", "hyper-v", "virtualbox",
+        "vmware", "docker", "npcap", "teredo", "tap-", "tunnel",
+    )
+
+    def _looks_virtual(name: str) -> bool:
+        lowered = name.lower()
+        return any(marker in lowered for marker in _VIRTUAL_ADAPTER_MARKERS)
+
     interface = None
     try:
         import psutil
         stats = psutil.net_if_stats()
-        up_interfaces = [name for name, s in stats.items() if s.isup and name.lower() != "loopback"]
-        interface = up_interfaces[0] if up_interfaces else None
+        real_up = [name for name, s in stats.items() if s.isup and not _looks_virtual(name)]
+        if real_up:
+            interface = real_up[0]
+        else:
+            # Nothing looked like a real adapter — fall back to whatever's
+            # up rather than showing nothing, but this is a weaker signal.
+            any_up = [name for name, s in stats.items() if s.isup and name.lower() != "loopback"]
+            interface = any_up[0] if any_up else None
     except Exception:
         pass  # interface name is a nice-to-have, never block the actual connectivity check on it
 
+    # Some networks filter or rate-limit raw DNS lookups (port 53) to
+    # arbitrary external IPs even though normal browsing works fine —
+    # port 443 (HTTPS) is a much more reliable signal of "can this machine
+    # actually reach the internet" since that's what real traffic uses.
     start = time.monotonic()
     try:
-        sock = socket.create_connection(("8.8.8.8", 53), timeout=3)
+        sock = socket.create_connection(("1.1.1.1", 443), timeout=3)
         sock.close()
         latency_ms = round((time.monotonic() - start) * 1000, 1)
         return {"ok": True, "connected": True, "latency_ms": latency_ms, "interface": interface}
     except OSError as exc:
         return {"ok": True, "connected": False, "latency_ms": None, "interface": interface, "error": str(exc)}
+
+
+def _get_cpu_name() -> tuple[str | None, str | None]:
+    """platform.processor() often returns a generic/truncated string on
+    Windows (or just the raw family/model/stepping numbers) — the actual
+    friendly name ("AMD Ryzen 7 5800X") lives in the registry. Returns
+    (name, error) so a failure here is visible instead of silently falling
+    back to the worse string with no explanation."""
+    try:
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+        )
+        name, _ = winreg.QueryValueEx(key, "ProcessorNameString")
+        return name.strip(), None
+    except Exception as exc:
+        return None, str(exc)
+
+
+def _get_gpu_names() -> tuple[list[str], str | None]:
+    """Queries WMI for video controllers — a machine can have more than one
+    (integrated + discrete), so this returns all of them rather than just
+    the first. Returns (names, error) — error is None on success, so the
+    caller can tell "no GPUs found" apart from "the query itself failed".
+
+    Explicit CoInitialize/CoUninitialize because this runs on the agent's
+    single asyncio-loop thread, not a fresh worker thread — COM apartment
+    state there isn't guaranteed, and without this the WMI call can fail
+    silently depending on what else has (or hasn't) touched COM already.
+    """
+    try:
+        import pythoncom
+        import win32com.client
+
+        pythoncom.CoInitialize()
+        try:
+            wmi = win32com.client.GetObject("winmgmts:")
+            adapters = wmi.ExecQuery("SELECT Name FROM Win32_VideoController")
+            names = [a.Name for a in adapters if getattr(a, "Name", None)]
+            return names, None
+        finally:
+            pythoncom.CoUninitialize()
+    except Exception as exc:
+        return [], str(exc)
+
+
+def get_system_info() -> dict:
+    """Static-ish machine specs — CPU, GPU, total RAM, per-drive disk
+    capacity, OS version, uptime. Unlike the other telemetry commands this
+    rarely changes, so there's no separate "disk usage" button: the
+    per-drive breakdown just lives here instead of forcing a 13th button
+    that would almost always show the same numbers as this one."""
+    import platform as platform_module
+    import socket
+    import time
+
+    info: dict = {
+        "ok": True,
+        "hostname": socket.gethostname(),
+        "os": f"{platform_module.system()} {platform_module.release()}",
+        "os_version": platform_module.version(),
+    }
+
+    cpu_name, cpu_error = _get_cpu_name()
+    gpu_names, gpu_error = _get_gpu_names()
+    info["cpu_model"] = cpu_name or platform_module.processor() or None
+    info["gpu"] = gpu_names
+    if cpu_error:
+        info["cpu_lookup_error"] = cpu_error
+    if gpu_error:
+        info["gpu_lookup_error"] = gpu_error
+
+    try:
+        import psutil
+
+        info["cpu_cores"] = psutil.cpu_count(logical=False)
+        info["cpu_threads"] = psutil.cpu_count(logical=True)
+
+        mem = psutil.virtual_memory()
+        info["ram_total_gb"] = round(mem.total / (1024 ** 3), 1)
+
+        info["uptime_seconds"] = int(time.time() - psutil.boot_time())
+
+        drives = []
+        for part in psutil.disk_partitions(all=False):
+            try:
+                usage = psutil.disk_usage(part.mountpoint)
+            except (PermissionError, OSError):
+                continue  # e.g. an empty CD/DVD drive letter — skip, not fatal
+            drives.append({
+                "drive": part.device,
+                "total_gb": round(usage.total / (1024 ** 3), 1),
+                "used_gb": round(usage.used / (1024 ** 3), 1),
+                "percent": usage.percent,
+            })
+        info["drives"] = drives
+    except Exception as exc:
+        info["partial_error"] = str(exc)  # hostname/os/cpu/gpu still returned even if psutil hiccups
+
+    return info

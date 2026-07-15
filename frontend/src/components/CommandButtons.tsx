@@ -2,34 +2,85 @@ import { useEffect, useState } from "react";
 import {
   useSendCommand,
   useCommand,
+  useCommandHistory,
   usePurgeCommandResult,
+  HISTORY_PAGE_SIZE,
 } from "../hooks/useMachines";
+
+type Category = "actions" | "status" | "power";
+
+const CATEGORIES: { key: Category; label: string }[] = [
+  { key: "actions", label: "Actions" },
+  { key: "status", label: "Status" },
+  { key: "power", label: "Power" },
+];
 
 const ACTIONS: {
   type: string;
   label: string;
-  needsPayload?: "url" | "path";
+  category: Category;
+  needsPayload?: "url" | "path" | "pid" | "message";
   needsConfirm?: boolean;
 }[] = [
-  { type: "open_website", label: "Open website", needsPayload: "url" },
-  { type: "open_program", label: "Open program", needsPayload: "path" },
-  { type: "screenshot", label: "Screenshot" },
-  { type: "get_idle_time", label: "Idle time" },
-  { type: "list_processes", label: "Processes" },
-  { type: "get_active_window", label: "Active window" },
-  { type: "list_open_windows", label: "Open windows" },
-  { type: "get_network_status", label: "Network status" },
-  { type: "lock", label: "Lock" },
-  { type: "sleep", label: "Sleep" },
-  { type: "restart", label: "Restart", needsConfirm: true },
-  { type: "shutdown", label: "Shutdown", needsConfirm: true },
+  { type: "open_website", label: "Open website", category: "actions", needsPayload: "url" },
+  { type: "open_program", label: "Open program", category: "actions", needsPayload: "path" },
+  { type: "send_message", label: "Send message", category: "actions", needsPayload: "message" },
+  { type: "screenshot", label: "Screenshot", category: "actions" },
+  { type: "get_idle_time", label: "Idle time", category: "status" },
+  { type: "list_processes", label: "Processes", category: "status" },
+  { type: "get_active_window", label: "Active window", category: "status" },
+  { type: "list_open_windows", label: "Open windows", category: "status" },
+  { type: "get_network_status", label: "Network status", category: "status" },
+  { type: "get_system_info", label: "System info", category: "status" },
+  { type: "lock", label: "Lock", category: "power", needsConfirm: true },
+  { type: "sleep", label: "Sleep", category: "power", needsConfirm: true },
+  { type: "restart", label: "Restart", category: "power", needsConfirm: true },
+  { type: "shutdown", label: "Shutdown", category: "power", needsConfirm: true },
+  {
+    type: "kill_process",
+    label: "Kill process",
+    category: "power",
+    needsPayload: "pid",
+    needsConfirm: true,
+  },
 ];
 
+// These commands just report back data (no side effect on the machine), so
+// they get toggle behavior: click once to run + show, click the same
+// button again to collapse instead of re-running it.
+const QUERY_TYPES = new Set([
+  "get_idle_time",
+  "list_processes",
+  "get_active_window",
+  "list_open_windows",
+  "get_network_status",
+  "get_system_info",
+]);
+
 const SHUTDOWN_GRACE_SECONDS = 60;
+
+// Copy + behavior for the confirm modal, per command. Only shutdown/restart
+// get the grace-period + cancel-window treatment — lock/sleep are instant
+// once confirmed, since there's no "undo" for them once sent, but there's
+// also nothing to warn the person at the keyboard about in advance.
+const CONFIRM_COPY: Record<
+  string,
+  { verb: string; hasGracePeriod: boolean; subject?: (payload?: Record<string, unknown>) => string }
+> = {
+  shutdown: { verb: "ปิดเครื่อง", hasGracePeriod: true },
+  restart: { verb: "รีสตาร์ท", hasGracePeriod: true },
+  lock: { verb: "ล็อกหน้าจอ", hasGracePeriod: false },
+  sleep: { verb: "พักเครื่อง (sleep)", hasGracePeriod: false },
+  kill_process: {
+    verb: "ปิดโปรแกรม",
+    hasGracePeriod: false,
+    subject: (payload) => `process PID ${payload?.pid ?? "?"} บน`,
+  },
+};
 const RECENTS_KEY_PREFIX = "remotehub:recents:";
 const MAX_RECENTS = 5;
 
-function loadRecents(kind: "url" | "path"): string[] {
+function loadRecents(kind: "url" | "path" | "message"): string[] {
   try {
     const raw = localStorage.getItem(RECENTS_KEY_PREFIX + kind);
     return raw ? (JSON.parse(raw) as string[]) : [];
@@ -38,7 +89,7 @@ function loadRecents(kind: "url" | "path"): string[] {
   }
 }
 
-function saveRecent(kind: "url" | "path", value: string) {
+function saveRecent(kind: "url" | "path" | "message", value: string) {
   const existing = loadRecents(kind).filter((v) => v !== value);
   const updated = [value, ...existing].slice(0, MAX_RECENTS);
   localStorage.setItem(RECENTS_KEY_PREFIX + kind, JSON.stringify(updated));
@@ -63,12 +114,17 @@ function downloadBase64(base64: string, format: string, filename: string) {
 interface PayloadModalState {
   type: string;
   label: string;
-  kind: "url" | "path";
+  kind: "url" | "path" | "pid" | "message";
+  // Carried over from the action definition — if set, submitting this
+  // modal doesn't dispatch immediately, it opens the confirm modal next
+  // (e.g. kill_process: pick a PID, then confirm before actually sending).
+  needsConfirm?: boolean;
 }
 
 interface ConfirmModalState {
   type: string;
   label: string;
+  payload?: Record<string, unknown>;
 }
 
 export default function CommandButtons({
@@ -100,6 +156,36 @@ export default function CommandButtons({
     data: Record<string, unknown>;
   } | null>(null);
   const [shutdownPending, setShutdownPending] = useState<"shutdown" | "restart" | null>(null);
+  const [shutdownDeadline, setShutdownDeadline] = useState<number | null>(null);
+  const [secondsLeft, setSecondsLeft] = useState(0);
+  const [activeTab, setActiveTab] = useState<Category>("actions");
+
+  // Live countdown while a shutdown/restart is pending — ticks every
+  // second purely on the client; the actual cutoff is enforced by the OS
+  // (`shutdown /t N`) on the agent's side regardless of this UI.
+  useEffect(() => {
+    if (!shutdownDeadline) return;
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((shutdownDeadline - Date.now()) / 1000));
+      setSecondsLeft(remaining);
+      if (remaining === 0) {
+        // Deadline passed — the OS-level shutdown/restart has already
+        // fired, so "Cancel" no longer means anything. Clear it instead
+        // of leaving a dead button showing "0s left" forever.
+        setShutdownPending(null);
+        setShutdownDeadline(null);
+      }
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [shutdownDeadline]);
+
+  // History panel is a separate toggle from queryResult — it's a local UI
+  // view of past commands, not a command sent to the agent.
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyPage, setHistoryPage] = useState(0);
+  const history = useCommandHistory(machineId, historyPage, showHistory);
 
   const { data: activeCommand } = useCommand(machineId, activeCommandId);
 
@@ -147,18 +233,24 @@ export default function CommandButtons({
         } catch (err) {
           console.error("Failed to download screenshot:", err);
         }
-      } else if (
-        type === "get_idle_time" ||
-        type === "list_processes" ||
-        type === "get_active_window" ||
-        type === "list_open_windows" ||
-        type === "get_network_status"
-      ) {
+      } else if (QUERY_TYPES.has(type)) {
+        // Single source of truth with the toggle-behavior set above —
+        // forgetting to add a new query command to *both* places was
+        // exactly the bug that made get_system_info silently show nothing.
+        setQueryResult({ commandType: type, data: result || {} });
+      } else if (type === "send_message" || type === "kill_process") {
+        // One-shot actions that still deserve visible confirmation — unlike
+        // lock/sleep, "did that actually work" isn't obvious from the UI
+        // otherwise. Reuses the same result panel/Close button as queries,
+        // just isn't wired into the toggle set since re-clicking should
+        // resend, not collapse a stale confirmation.
         setQueryResult({ commandType: type, data: result || {} });
       } else if (type === "shutdown" || type === "restart") {
         setShutdownPending(type);
+        setShutdownDeadline(Date.now() + SHUTDOWN_GRACE_SECONDS * 1000);
       } else if (type === "cancel_shutdown") {
         setShutdownPending(null);
+        setShutdownDeadline(null);
       }
     }
 
@@ -183,9 +275,21 @@ export default function CommandButtons({
 
   // จุดตัดสินใจตอนกดปุ่ม: ต้องกรอกข้อมูลก่อนไหม / ต้องยืนยันก่อนไหม / ยิงเลย
   function handleActionClick(action: (typeof ACTIONS)[number]) {
+    // Query-type commands (idle time, processes, etc.) toggle: clicking the
+    // same button again while its result is already showing just collapses
+    // it, rather than sending the command to the agent a second time.
+    if (QUERY_TYPES.has(action.type) && queryResult?.commandType === action.type) {
+      setQueryResult(null);
+      return;
+    }
     if (action.needsPayload) {
       setInputValue("");
-      setPayloadModal({ type: action.type, label: action.label, kind: action.needsPayload });
+      setPayloadModal({
+        type: action.type,
+        label: action.label,
+        kind: action.needsPayload,
+        needsConfirm: action.needsConfirm,
+      });
       return;
     }
     if (action.needsConfirm) {
@@ -197,17 +301,49 @@ export default function CommandButtons({
 
   function submitPayloadModal() {
     if (!payloadModal || !inputValue.trim()) return;
-    saveRecent(payloadModal.kind, inputValue.trim());
-    dispatch(payloadModal.type, { [payloadModal.kind]: inputValue.trim() });
+    const value = inputValue.trim();
+    const key = payloadModal.kind;
+
+    if (key !== "pid") saveRecent(key, value); // a PID is never worth remembering
+    const payload = { [key]: key === "pid" ? Number(value) : value };
+
+    if (payloadModal.needsConfirm) {
+      // e.g. kill_process — the PID is picked here, but actually sending
+      // it still goes through the confirm step, carrying the payload along.
+      setConfirmModal({ type: payloadModal.type, label: payloadModal.label, payload });
+      setPayloadModal(null);
+      return;
+    }
+    dispatch(payloadModal.type, payload);
     setPayloadModal(null);
+  }
+
+  // เรียกจากปุ่ม Kill ในตาราง Processes — ถ้ามี instance เดียวข้ามการพิมพ์ PID
+  // เองไปเลย เข้า confirm modal ตรง; ถ้ามีหลาย instance เติม PID ตัวแรกให้ในช่อง
+  // กรอกแทน (ยังแก้ไขเป็นตัวอื่นในกลุ่มเดียวกันได้ถ้าต้องการ)
+  function handleKillFromProcessRow(pids: number[]) {
+    if (pids.length === 1) {
+      setConfirmModal({ type: "kill_process", label: "Kill process", payload: { pid: pids[0] } });
+      return;
+    }
+    setInputValue(String(pids[0]));
+    setPayloadModal({ type: "kill_process", label: "Kill process", kind: "pid", needsConfirm: true });
   }
 
   function confirmDangerousAction() {
     if (!confirmModal) return;
-    // Shutdown/restart always go out with a grace period + local notification
-    // — the agent warns whoever's at the keyboard and gives them time to
-    // cancel, since the operator sending this has no live view of the screen.
-    dispatch(confirmModal.type, { delay_seconds: SHUTDOWN_GRACE_SECONDS });
+    if (CONFIRM_COPY[confirmModal.type]?.hasGracePeriod) {
+      // Shutdown/restart always go out with a grace period + local
+      // notification — the agent warns whoever's at the keyboard and
+      // gives them time to cancel, since the operator sending this has no
+      // live view of the screen.
+      dispatch(confirmModal.type, { delay_seconds: SHUTDOWN_GRACE_SECONDS });
+    } else {
+      // Lock/sleep/kill_process have no grace period concept — confirm
+      // just guards against an accidental click, then it's sent right
+      // away, carrying whatever payload (e.g. pid) was collected earlier.
+      dispatch(confirmModal.type, confirmModal.payload);
+    }
     setConfirmModal(null);
   }
 
@@ -219,8 +355,24 @@ export default function CommandButtons({
 
   return (
     <div>
+      <div className="flex gap-1 mb-2">
+        {CATEGORIES.map((cat) => (
+          <button
+            key={cat.key}
+            onClick={() => setActiveTab(cat.key)}
+            className={`text-xs px-3 py-1.5 rounded-lg border transition ${
+              activeTab === cat.key
+                ? "border-accent bg-accent/10 text-accent"
+                : "border-line bg-base text-muted hover:border-accent"
+            }`}
+          >
+            {cat.label}
+          </button>
+        ))}
+      </div>
+
       <div className="flex flex-wrap gap-2">
-        {ACTIONS.map((action) => (
+        {ACTIONS.filter((action) => action.category === activeTab).map((action) => (
           <button
             key={action.type}
             disabled={!online || isBusy(action.type)}
@@ -244,9 +396,20 @@ export default function CommandButtons({
           >
             {isBusy("cancel_shutdown")
               ? "Cancelling..."
-              : `Cancel ${shutdownPending} (${SHUTDOWN_GRACE_SECONDS}s grace period)`}
+              : `Cancel ${shutdownPending} (${secondsLeft}s left)`}
           </button>
         )}
+
+        <button
+          onClick={() => {
+            // Toggle, same pattern as the query-type command buttons above.
+            setShowHistory((s) => !s);
+            setHistoryPage(0);
+          }}
+          className="text-sm px-3 py-1.5 rounded-lg border border-line bg-base hover:border-accent transition"
+        >
+          {showHistory ? "Hide history" : "History"}
+        </button>
       </div>
 
       {lastFailure && (
@@ -272,6 +435,79 @@ export default function CommandButtons({
         </div>
       )}
 
+      {showHistory && (
+        <div className="mt-2 text-sm bg-base border border-line rounded-lg p-3">
+          {history.isLoading ? (
+            <p className="text-muted">Loading...</p>
+          ) : history.isError ? (
+            <p className="text-red-500">Failed to load history.</p>
+          ) : (
+            <>
+              <table className="w-full text-xs" style={{ tableLayout: "fixed" }}>
+                <thead>
+                  <tr className="text-muted">
+                    <th className="text-left font-normal py-1 pr-2" style={{ width: "35%" }}>Command</th>
+                    <th className="text-left font-normal py-1 pr-2" style={{ width: "20%" }}>Status</th>
+                    <th className="text-left font-normal py-1" style={{ width: "45%" }}>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.data?.commands.map((c) => (
+                    <tr key={c.id} className="border-t border-line">
+                      <td className="py-1 pr-2 truncate">{c.command_type}</td>
+                      <td className="py-1 pr-2">
+                        <span
+                          className={`text-[10px] px-1.5 py-0.5 rounded-md ${
+                            c.status === "acknowledged"
+                              ? "bg-green-500/15 text-green-500"
+                              : c.status === "failed"
+                              ? "bg-red-500/15 text-red-500"
+                              : "bg-base text-muted"
+                          }`}
+                        >
+                          {c.status}
+                        </span>
+                      </td>
+                      <td className="py-1 mono text-muted">
+                        {new Date(c.created_at).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                  {history.data?.commands.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="py-2 text-muted">
+                        No commands sent to this machine yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+
+              <div className="flex items-center justify-between mt-2">
+                <button
+                  disabled={historyPage === 0}
+                  onClick={() => setHistoryPage((p) => Math.max(0, p - 1))}
+                  className="text-xs text-muted hover:text-text disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  Prev
+                </button>
+                <span className="text-xs text-muted">
+                  Page {historyPage + 1} of{" "}
+                  {Math.max(1, Math.ceil((history.data?.total ?? 0) / HISTORY_PAGE_SIZE))}
+                </span>
+                <button
+                  disabled={(historyPage + 1) * HISTORY_PAGE_SIZE >= (history.data?.total ?? 0)}
+                  onClick={() => setHistoryPage((p) => p + 1)}
+                  className="text-xs text-muted hover:text-text disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {queryResult && (
         <div className="mt-2 text-sm bg-base border border-line rounded-lg p-3 max-h-56 overflow-auto">
           {queryResult.commandType === "get_idle_time" && (
@@ -288,24 +524,39 @@ export default function CommandButtons({
               <table className="w-full text-xs" style={{ tableLayout: "fixed" }}>
                 <thead>
                   <tr className="text-muted">
-                    <th className="text-left font-normal py-1 pr-2" style={{ width: "55%" }}>Program</th>
-                    <th className="text-left font-normal py-1 pr-2" style={{ width: "22%" }}>Memory</th>
-                    <th className="text-left font-normal py-1" style={{ width: "23%" }}>CPU</th>
+                    <th className="text-left font-normal py-1 pr-2" style={{ width: "45%" }}>Program</th>
+                    <th className="text-left font-normal py-1 pr-2" style={{ width: "18%" }}>Memory</th>
+                    <th className="text-left font-normal py-1 pr-2" style={{ width: "17%" }}>CPU</th>
+                    <th className="text-left font-normal py-1" style={{ width: "20%" }}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(queryResult.data.processes as Array<Record<string, unknown>> | undefined)?.map((p) => (
-                    <tr key={p.name as string} className="border-t border-line">
-                      <td className="py-1 pr-2 truncate" title={p.name as string}>
-                        {p.name as string}
-                        {(p.instance_count as number) > 1 ? (
-                          <span className="text-muted"> (×{p.instance_count as number})</span>
-                        ) : null}
-                      </td>
-                      <td className="py-1 pr-2 mono">{(p.memory_percent as number).toFixed(1)}%</td>
-                      <td className="py-1 mono">{(p.cpu_percent as number).toFixed(1)}%</td>
-                    </tr>
-                  ))}
+                  {(queryResult.data.processes as Array<Record<string, unknown>> | undefined)?.map((p) => {
+                    const pids = (p.pids as number[] | undefined) ?? [];
+                    return (
+                      <tr key={p.name as string} className="border-t border-line">
+                        <td className="py-1 pr-2 truncate" title={p.name as string}>
+                          {p.name as string}
+                          {(p.instance_count as number) > 1 ? (
+                            <span className="text-muted"> (×{p.instance_count as number})</span>
+                          ) : null}
+                        </td>
+                        <td className="py-1 pr-2 mono">{(p.memory_percent as number).toFixed(1)}%</td>
+                        <td className="py-1 pr-2 mono">{(p.cpu_percent as number).toFixed(1)}%</td>
+                        <td className="py-1">
+                          {pids.length > 0 && (
+                            <button
+                              onClick={() => handleKillFromProcessRow(pids)}
+                              className="text-[11px] px-2 py-0.5 rounded-md border border-danger text-danger hover:bg-danger/10 transition"
+                              title={`PID${pids.length > 1 ? "s" : ""}: ${pids.join(", ")}`}
+                            >
+                              Kill
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </>
@@ -371,6 +622,74 @@ export default function CommandButtons({
               ) : null}
             </p>
           )}
+          {queryResult.commandType === "get_system_info" && (
+            <>
+              <p className="mb-1">
+                {queryResult.data.hostname as string}
+                <span className="text-muted"> — {queryResult.data.os as string}</span>
+              </p>
+              {queryResult.data.cpu_model ? (
+                <p className="text-muted mb-1">{queryResult.data.cpu_model as string}</p>
+              ) : null}
+              {Array.isArray(queryResult.data.gpu) && (queryResult.data.gpu as string[]).length > 0 && (
+                <p className="text-muted mb-1">{(queryResult.data.gpu as string[]).join(", ")}</p>
+              )}
+              {queryResult.data.gpu_lookup_error ? (
+                <p className="text-danger text-xs mb-1">
+                  GPU lookup failed: {queryResult.data.gpu_lookup_error as string}
+                </p>
+              ) : null}
+              {queryResult.data.cpu_lookup_error ? (
+                <p className="text-danger text-xs mb-1">
+                  CPU name lookup failed (showing fallback): {queryResult.data.cpu_lookup_error as string}
+                </p>
+              ) : null}
+              <p className="text-muted mb-2">
+                {(queryResult.data.cpu_cores as number) ?? "?"} cores /{" "}
+                {(queryResult.data.cpu_threads as number) ?? "?"} threads ·{" "}
+                {(queryResult.data.ram_total_gb as number) ?? "?"} GB RAM · uptime{" "}
+                {Math.floor(((queryResult.data.uptime_seconds as number) ?? 0) / 3600)}h
+              </p>
+              <table className="w-full text-xs" style={{ tableLayout: "fixed" }}>
+                <thead>
+                  <tr className="text-muted">
+                    <th className="text-left font-normal py-1 pr-2" style={{ width: "30%" }}>Drive</th>
+                    <th className="text-left font-normal py-1" style={{ width: "70%" }}>Used</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(queryResult.data.drives as Array<Record<string, unknown>> | undefined)?.map((d) => (
+                    <tr key={d.drive as string} className="border-t border-line">
+                      <td className="py-1 pr-2 mono">{d.drive as string}</td>
+                      <td className="py-1">
+                        {d.used_gb as number} / {d.total_gb as number} GB ({d.percent as number}%)
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+          {queryResult.commandType === "send_message" && (
+            <p>
+              {queryResult.data.ok ? (
+                <span className="text-online">Message delivered — the dialog is showing on their screen now.</span>
+              ) : (
+                <span className="text-danger">Failed: {(queryResult.data.error as string) ?? "unknown error"}</span>
+              )}
+            </p>
+          )}
+          {queryResult.commandType === "kill_process" && (
+            <p>
+              {queryResult.data.ok ? (
+                <span className="text-online">
+                  Terminated {(queryResult.data.name as string) ?? "process"} (PID {queryResult.data.pid as number})
+                </span>
+              ) : (
+                <span className="text-danger">Failed: {(queryResult.data.error as string) ?? "unknown error"}</span>
+              )}
+            </p>
+          )}
           <button className="text-xs text-muted hover:text-text mt-2" onClick={() => setQueryResult(null)}>
             Close
           </button>
@@ -391,17 +710,23 @@ export default function CommandButtons({
 
             <input
               autoFocus
-              type="text"
+              type={payloadModal.kind === "pid" ? "number" : "text"}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && submitPayloadModal()}
               placeholder={
-                payloadModal.kind === "url" ? "https://example.com" : "C:\\Path\\To\\App.exe"
+                payloadModal.kind === "url"
+                  ? "https://example.com"
+                  : payloadModal.kind === "path"
+                  ? "C:\\Path\\To\\App.exe"
+                  : payloadModal.kind === "pid"
+                  ? "1234"
+                  : "Save your work, restarting in 10 minutes"
               }
               className="w-full text-sm px-3 py-2 rounded-lg border border-line bg-transparent outline-none focus:border-accent"
             />
 
-            {loadRecents(payloadModal.kind).length > 0 && (
+            {payloadModal.kind !== "pid" && loadRecents(payloadModal.kind).length > 0 && (
               <div className="mt-3">
                 <p className="text-xs text-muted mb-1.5">Recent:</p>
                 <div className="flex flex-wrap gap-1.5">
@@ -431,14 +756,14 @@ export default function CommandButtons({
                 disabled={!inputValue.trim()}
                 className="text-sm px-3 py-1.5 rounded-lg bg-accent text-white disabled:opacity-40 transition"
               >
-                Run
+                {payloadModal.needsConfirm ? "Next" : "Run"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal ยืนยันก่อน Restart / Shutdown */}
+      {/* Modal ยืนยันก่อน Restart / Shutdown / Lock / Sleep */}
       {confirmModal && (
         <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
@@ -450,9 +775,15 @@ export default function CommandButtons({
           >
             <h3 className="text-sm font-medium mb-2">ยืนยันการทำรายการ</h3>
             <p className="text-sm text-muted">
-              ต้องการ{confirmModal.label === "Restart" ? "รีสตาร์ท" : "ปิดเครื่อง"}
-              เครื่องนี้จริงหรือไม่? เครื่องปลายทางจะได้รับการแจ้งเตือนล่วงหน้า{" "}
-              {SHUTDOWN_GRACE_SECONDS} วินาทีก่อนทำจริง และสามารถกดยกเลิกได้ในช่วงนั้น
+              ต้องการ{CONFIRM_COPY[confirmModal.type]?.verb ?? confirmModal.label}{" "}
+              {CONFIRM_COPY[confirmModal.type]?.subject?.(confirmModal.payload) ?? ""}
+              เครื่องนี้จริงหรือไม่?
+              {CONFIRM_COPY[confirmModal.type]?.hasGracePeriod && (
+                <>
+                  {" "}เครื่องปลายทางจะได้รับการแจ้งเตือนล่วงหน้า {SHUTDOWN_GRACE_SECONDS}{" "}
+                  วินาทีก่อนทำจริง และสามารถกดยกเลิกได้ในช่วงนั้น
+                </>
+              )}
             </p>
             <div className="flex justify-end gap-2 mt-4">
               <button
@@ -465,7 +796,7 @@ export default function CommandButtons({
                 onClick={confirmDangerousAction}
                 className="text-sm px-3 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 transition"
               >
-                ยืนยัน{confirmModal.label === "Restart" ? "รีสตาร์ท" : "ปิดเครื่อง"}
+                ยืนยัน{CONFIRM_COPY[confirmModal.type]?.verb ?? confirmModal.label}
               </button>
             </div>
           </div>

@@ -1,7 +1,7 @@
 import time
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import enforce_rate_limit, get_current_user, require_role
@@ -25,14 +25,21 @@ _ACTION_MIN_ROLE = Role.member
 @router.get("", response_model=list[CommandOut])
 def list_commands(
     machine_id: uuid.UUID,
+    response: Response,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
     machine: Machine = Depends(require_role(Role.viewer)),
     db: Session = Depends(get_db),
 ):
+    base_query = db.query(Command).filter(Command.machine_id == machine.id)
+    # Total count of *all* commands for this machine, not just this page —
+    # the frontend needs this to render "page X of Y" / disable Next.
+    response.headers["X-Total-Count"] = str(base_query.count())
     return (
-        db.query(Command)
-        .filter(Command.machine_id == machine.id)
+        base_query
         .order_by(Command.created_at.desc())
-        .limit(100)
+        .offset(skip)
+        .limit(limit)
         .all()
     )
 

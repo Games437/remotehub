@@ -17,4 +17,7 @@ DISPATCH = {
     "get_active_window": lambda payload: telemetry.get_active_window(),
     "list_open_windows": lambda payload: telemetry.list_open_windows(),
     "get_network_status": lambda payload: telemetry.get_network_status(),
+    "get_system_info": lambda payload: telemetry.get_system_info(),
+    "kill_process": lambda payload: system.kill_process(payload),
+    "send_message": media_web.send_message,
 }

@@ -85,6 +85,32 @@ export function useCommand(machineId: string, commandId: string | null) {
   });
 }
 
+export interface CommandHistoryPage {
+  commands: Command[];
+  total: number;
+}
+
+const HISTORY_PAGE_SIZE = 20;
+
+/** Paginated command history for a machine — separate from useCommand
+ * above, which only tracks the one command just sent. */
+export function useCommandHistory(machineId: string, page: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ["command-history", machineId, page],
+    queryFn: async (): Promise<CommandHistoryPage> => {
+      const { data, headers } = await api.get<Command[]>(`/machines/${machineId}/commands`, {
+        params: { skip: page * HISTORY_PAGE_SIZE, limit: HISTORY_PAGE_SIZE },
+      });
+      const total = Number(headers["x-total-count"] ?? data.length);
+      return { commands: data, total };
+    },
+    enabled,
+    placeholderData: (previous) => previous, // keep old page visible while the next one loads
+  });
+}
+
+export { HISTORY_PAGE_SIZE };
+
 export function usePurgeCommandResult(machineId: string) {
   return useMutation({
     mutationFn: async (commandId: string) => {
