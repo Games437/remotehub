@@ -192,6 +192,15 @@ export default function Help() {
             </p>
           </div>
           <div>
+            <p className="font-medium text-text">หน้าต่าง Agent ค้างที่ "Connecting..." นานผิดปกติ</p>
+            <p className="text-muted">
+              รอสักครู่ก่อน (agent จะลองเชื่อมต่อใหม่ให้เองอัตโนมัติ) ถ้าเกิน 1-2 นาทีแล้ว
+              ยังไม่ขยับ ให้กดปุ่ม <span className="text-text">"Reset connection"</span>{" "}
+              ในหน้าต่าง agent — จะล้างข้อมูลเครื่องเก่าที่อาจค้างอยู่แล้วพากลับไปหน้า
+              login ให้เข้าสู่ระบบใหม่อีกครั้ง
+            </p>
+          </div>
+          <div>
             <p className="font-medium text-text">Windows บล็อกการดาวน์โหลด หรือขึ้นเตือน SmartScreen</p>
             <p className="text-muted">
               คลิก "More info" → "Run anyway" เหตุการณ์นี้เกิดขึ้นเพราะ agent ยังไม่ได้

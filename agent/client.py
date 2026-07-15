@@ -34,6 +34,7 @@ from agent.commands import DISPATCH
 from agent.security import sign_challenge, verify_command
 
 STATUS_INTERVAL_SECONDS = 15
+HANDSHAKE_TIMEOUT_SECONDS = 15
 
 _status_callback = None  # set by the GUI; called with "connecting" | "connected" | "disconnected" | "error:<msg>"
 _stop_event = threading.Event()
@@ -219,18 +220,37 @@ async def _run() -> None:
 
     machine_uid, secret = creds["machine_uid"], creds["secret"]
 
-    async for ws in websockets.connect(config.SERVER_WS_URL):
+    # ping_interval=None: some hosting providers' reverse proxies (Render's
+    # included, per real-world reports) don't reliably relay raw WebSocket
+    # ping/pong control frames, even though they pass ordinary data frames
+    # fine. Left on, this client's own keepalive ping can go unanswered and
+    # the client ends up severing a perfectly fine connection itself with
+    # exactly the "no close frame received" error this was added to fix.
+    # The periodic status report already sent every STATUS_INTERVAL_SECONDS
+    # below is real application data — that's what actually keeps the
+    # connection (and any proxy's idle timer) alive here instead.
+    async for ws in websockets.connect(config.SERVER_WS_URL, ping_interval=None):
         if _stop_event.is_set():
             break
         try:
             print(f"Connecting as {machine_uid}...")
             _report_status("connecting")
 
-            await ws.send(json.dumps({"machine_uid": machine_uid}))
-            challenge = json.loads(await ws.recv())
-            nonce = challenge["nonce"]
-            signature = sign_challenge(machine_uid, secret, nonce)
-            await ws.send(json.dumps({"signature": signature}))
+            # Without this, a handshake that never gets a reply (server
+            # hung, proxy ate the response, etc.) leaves the GUI stuck on
+            # "Connecting..." forever with zero feedback — fine for a
+            # developer with a terminal, not fine for someone who just
+            # downloaded the .exe and has no way to know anything's wrong.
+            # Time out and let the outer retry loop take another pass
+            # instead of hanging indefinitely.
+            async def _do_handshake():
+                await ws.send(json.dumps({"machine_uid": machine_uid}))
+                challenge = json.loads(await ws.recv())
+                nonce = challenge["nonce"]
+                signature = sign_challenge(machine_uid, secret, nonce)
+                await ws.send(json.dumps({"signature": signature}))
+
+            await asyncio.wait_for(_do_handshake(), timeout=HANDSHAKE_TIMEOUT_SECONDS)
             print("Connected. Waiting for commands... (Ctrl+C to stop)")
             _report_status("connected")
 
@@ -278,6 +298,13 @@ async def _run() -> None:
 
             print(f"Disconnected ({exc}), retrying in a moment...")
             _report_status("disconnected")
+            continue
+        except asyncio.TimeoutError:
+            if _stop_event.is_set():
+                return
+            print(f"Handshake didn't complete within {HANDSHAKE_TIMEOUT_SECONDS}s, retrying...")
+            _report_status("handshake_timeout")
+            await asyncio.sleep(3)
             continue
         except Exception as exc:
             if _stop_event.is_set():

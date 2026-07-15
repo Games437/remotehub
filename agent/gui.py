@@ -76,6 +76,17 @@ class AgentWindow(QWidget):
         self.logout_button.clicked.connect(self.logout)
         self.logout_button.hide()
 
+        # Manual escape hatch for anyone stuck at "Connecting..." with no
+        # terminal access — clears local credentials and forces a fresh
+        # login, same recovery this app already does automatically when
+        # the server explicitly rejects a removed/invalid machine. This
+        # covers the cases where it doesn't respond at all instead of
+        # rejecting cleanly.
+        self.reset_button = QPushButton("Reset connection")
+        self.reset_button.setFlat(True)
+        self.reset_button.clicked.connect(self.reset_connection)
+        self.reset_button.hide()
+
         self.status = QLabel("Status: Offline")
 
         layout.addWidget(self.email)
@@ -84,6 +95,7 @@ class AgentWindow(QWidget):
         layout.addWidget(self.button)
         layout.addWidget(self.pair_link)
         layout.addWidget(self.logout_button)
+        layout.addWidget(self.reset_button)
         layout.addWidget(self.status)
 
         self.setLayout(layout)
@@ -107,6 +119,7 @@ class AgentWindow(QWidget):
         self.pair_link.show()
         self.pair_link.setEnabled(True)
         self.logout_button.hide()
+        self.reset_button.hide()
 
     def _show_connected_view(self):
         self.email.setEnabled(False)
@@ -116,6 +129,7 @@ class AgentWindow(QWidget):
         self.pair_link.hide()
         self.logout_button.show()
         self.logout_button.setEnabled(True)
+        self.reset_button.show()
 
     def _set_busy(self, busy: bool):
         self.button.setEnabled(not busy)
@@ -211,12 +225,27 @@ class AgentWindow(QWidget):
         self.status.setText("Status: Offline")
         self._show_login_form()
 
+    # -- manual recovery for a stuck connection --------------------------------
+    def reset_connection(self):
+        """Same recovery the app does automatically when the server
+        explicitly rejects a removed/invalid machine — offered here as a
+        button too, for the case where the connection just hangs instead
+        of rejecting cleanly, and the person has no other way to unstick
+        it (no terminal, doesn't know what pair.json is)."""
+        stop_agent_loop()
+        config.clear_credentials()
+        config.save_remember(False)
+        self.status.setText("Status: รีเซ็ตการเชื่อมต่อแล้ว — กรุณา Login ใหม่")
+        self._show_login_form()
+
     # -- status updates from the background websocket thread ------------------
     def _on_agent_status(self, state: str):
         mapping = {
             "connecting": "Status: Connecting...",
             "connected": "Status: Connected ✓",
             "disconnected": "Status: Disconnected, retrying...",
+            "handshake_timeout": "Status: การเชื่อมต่อไม่ตอบสนอง กำลังลองใหม่... "
+                                  "(ถ้าค้างนานผิดปกติ ลองกด Reset connection)",
         }
         if state in mapping:
             self.status.setText(mapping[state])
