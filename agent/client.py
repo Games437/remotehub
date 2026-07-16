@@ -30,7 +30,7 @@ import requests
 import websockets
 
 from agent import config
-from agent.commands import DISPATCH
+from agent.commands import DISPATCH, telemetry
 from agent.security import sign_challenge, verify_command
 
 STATUS_INTERVAL_SECONDS = 15
@@ -118,6 +118,12 @@ def _local_ip() -> str:
 
 
 def _collect_status() -> dict:
+    # Idle seconds is included here — on every periodic report, not just
+    # when someone clicks the Idle time button — so the dashboard can
+    # alert proactively ("idle 30 min") without anyone having to ask.
+    idle_result = telemetry.get_idle_time()
+    idle_seconds = int(idle_result["idle_seconds"]) if idle_result.get("ok") else None
+
     return {
         "type": "status",
         "cpu": psutil.cpu_percent(interval=None),
@@ -125,6 +131,7 @@ def _collect_status() -> dict:
         "disk": psutil.disk_usage("/").percent,
         "os": f"{platform.system()} {platform.release()}",
         "ip": _local_ip(),
+        "idle": idle_seconds,
     }
 
 
@@ -191,8 +198,12 @@ async def _handle_command(ws, secret: str, msg: dict) -> None:
                 result = {"ok": True, "image_b64": img_b64}
                 success = True
             else:
-                # คำสั่งอื่นๆ (เช่น open_website) ให้ทำงานผ่าน handler ดั้งเดิมตามปกติ
-                result = handler(msg.get("payload"))
+                # Run on a thread, not directly in the event loop — a
+                # command that takes a while (a script, a slow subprocess)
+                # would otherwise stall this agent's heartbeat and command
+                # processing for its entire duration, the same class of
+                # bug found and fixed on the backend's websocket handler.
+                result = await asyncio.to_thread(handler, msg.get("payload"))
                 success = bool(result.get("ok", True))
                 
         except Exception as exc:

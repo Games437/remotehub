@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Float, ForeignKey, String, Boolean
+from sqlalchemy import DateTime, Enum, Float, ForeignKey, Integer, String, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -47,6 +47,11 @@ class Machine(Base):
     cpu_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
     ram_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
     disk_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Reported on every periodic status message (same cadence as
+    # cpu/ram/disk) rather than only on-demand — lets the dashboard alert
+    # proactively ("idle 30 min") instead of requiring someone to click a
+    # button to notice nobody's at the keyboard.
+    idle_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

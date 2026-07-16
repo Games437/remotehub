@@ -40,6 +40,7 @@ class MachineOut(BaseModel):
     cpu_percent: float | None
     ram_percent: float | None
     disk_percent: float | None
+    idle_seconds: int | None
     ip_address: str | None
 
     class Config:

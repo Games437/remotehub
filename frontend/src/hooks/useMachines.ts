@@ -1,6 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 
+// Minutes/hours instead of raw seconds — "1h 30m" reads at a glance,
+// "5412 seconds" doesn't.
+export function formatDuration(totalSeconds: number): string {
+  if (totalSeconds < 60) return "< 1 min";
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes} min`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
+}
+
 export interface Machine {
   id: string;
   name: string;
@@ -11,6 +23,7 @@ export interface Machine {
   cpu_percent: number | null;
   ram_percent: number | null;
   disk_percent: number | null;
+  idle_seconds: number | null;
   ip_address: string | null;
 }
 

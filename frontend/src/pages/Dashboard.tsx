@@ -21,6 +21,12 @@ function AddMachineModal({ onClose }: { onClose: () => void }) {
               placeholder="e.g. Office PC"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && name && !generateCode.isPending) {
+                  generateCode.mutate(name);
+                }
+              }}
+              autoFocus
             />
             <div className="flex gap-2">
               <button className="text-sm text-muted" onClick={onClose}>Cancel</button>

@@ -4,6 +4,7 @@ import {
   useCommand,
   useCommandHistory,
   usePurgeCommandResult,
+  formatDuration,
   HISTORY_PAGE_SIZE,
 } from "../hooks/useMachines";
 
@@ -512,7 +513,7 @@ export default function CommandButtons({
         <div className="mt-2 text-sm bg-base border border-line rounded-lg p-3 max-h-56 overflow-auto">
           {queryResult.commandType === "get_idle_time" && (
             <p>
-              Idle for <span className="mono">{queryResult.data.idle_seconds as number}</span> seconds
+              Idle for <span className="mono">{formatDuration(queryResult.data.idle_seconds as number)}</span>
             </p>
           )}
           {queryResult.commandType === "list_processes" && (

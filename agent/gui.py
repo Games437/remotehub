@@ -68,6 +68,11 @@ class AgentWindow(QWidget):
         self.button = QPushButton("Login")
         self.button.clicked.connect(self.login)
 
+        # Enter in either field submits, same as clicking Login — nobody
+        # should have to reach for the mouse just to log in.
+        self.email.returnPressed.connect(self.button.click)
+        self.password.returnPressed.connect(self.button.click)
+
         self.pair_link = QPushButton("ใช้ Pair Code แทน")
         self.pair_link.setFlat(True)
         self.pair_link.clicked.connect(self.login_with_pair_code)
