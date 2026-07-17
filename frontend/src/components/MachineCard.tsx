@@ -19,7 +19,15 @@ function Stat({ label, value }: { label: string; value: number | null }) {
   );
 }
 
-export default function MachineCard({ machine }: { machine: Machine }) {
+export default function MachineCard({
+  machine,
+  selected,
+  onToggleSelect,
+}: {
+  machine: Machine;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+}) {
   const deleteMachine = useDeleteMachine();
   const online = machine.status === "online";
 
@@ -79,6 +87,16 @@ export default function MachineCard({ machine }: { machine: Machine }) {
       <div className="flex items-start justify-between mb-4">
         <div>
           <div className="flex items-center gap-2">
+            {onToggleSelect && (
+              <input
+                type="checkbox"
+                checked={!!selected}
+                disabled={!online}
+                onChange={onToggleSelect}
+                className="w-4 h-4 disabled:opacity-30"
+                title={online ? "Select for bulk actions" : "Machine is offline"}
+              />
+            )}
             <span
               className="inline-block w-2 h-2 rounded-full"
               style={{ backgroundColor: online ? "#3DDC97" : "#5A6376" }}

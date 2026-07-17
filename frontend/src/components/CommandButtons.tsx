@@ -7,13 +7,15 @@ import {
   formatDuration,
   HISTORY_PAGE_SIZE,
 } from "../hooks/useMachines";
+import ChatPanel from "./ChatPanel";
 
-type Category = "actions" | "status" | "power";
+type Category = "actions" | "status" | "power" | "tools";
 
 const CATEGORIES: { key: Category; label: string }[] = [
   { key: "actions", label: "Actions" },
   { key: "status", label: "Status" },
   { key: "power", label: "Power" },
+  { key: "tools", label: "Tools" },
 ];
 
 const ACTIONS: {
@@ -33,6 +35,7 @@ const ACTIONS: {
   { type: "list_open_windows", label: "Open windows", category: "status" },
   { type: "get_network_status", label: "Network status", category: "status" },
   { type: "get_system_info", label: "System info", category: "status" },
+  { type: "health_check", label: "Health check", category: "status" },
   { type: "lock", label: "Lock", category: "power", needsConfirm: true },
   { type: "sleep", label: "Sleep", category: "power", needsConfirm: true },
   { type: "restart", label: "Restart", category: "power", needsConfirm: true },
@@ -56,6 +59,7 @@ const QUERY_TYPES = new Set([
   "list_open_windows",
   "get_network_status",
   "get_system_info",
+  "health_check",
 ]);
 
 const SHUTDOWN_GRACE_SECONDS = 60;
@@ -98,6 +102,25 @@ function saveRecent(kind: "url" | "path" | "message", value: string) {
 
 function downloadBase64(base64: string, format: string, filename: string) {
   fetch(`data:image/${format};base64,${base64}`)
+    .then((res) => res.blob())
+    .then((blob) => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    })
+    .catch((err) => console.error("Blob generation failed:", err));
+}
+
+// Same idea as downloadBase64 above, but for arbitrary fetched files
+// rather than just screenshots — no need to guess a specific mime type,
+// the browser doesn't require one to be correct just to save the bytes.
+function downloadBase64File(base64: string, filename: string) {
+  fetch(`data:application/octet-stream;base64,${base64}`)
     .then((res) => res.blob())
     .then((blob) => {
       const url = URL.createObjectURL(blob);
@@ -188,6 +211,21 @@ export default function CommandButtons({
   const [historyPage, setHistoryPage] = useState(0);
   const history = useCommandHistory(machineId, historyPage, showHistory);
 
+  // File browser — list_folder result renders here; clicking a folder
+  // re-dispatches list_folder with the new path, clicking Fetch on a file
+  // dispatches fetch_file and downloads the result once it comes back.
+  const [showFiles, setShowFiles] = useState(false);
+  const [filesPath, setFilesPath] = useState<string | null>(null);
+  const [filesEntries, setFilesEntries] = useState<Array<Record<string, unknown>> | null>(null);
+  const [filesError, setFilesError] = useState<string | null>(null);
+  const [filesParent, setFilesParent] = useState<string | null>(null);
+  const [filesDrives, setFilesDrives] = useState<string[]>([]);
+
+  // Chat — moved here (from MachineCard) so it lives in the same Tools
+  // tab as History/Media/Files instead of sitting off on its own for no
+  // real reason other than it existed before the tab did.
+  const [showChat, setShowChat] = useState(false);
+
   const { data: activeCommand } = useCommand(machineId, activeCommandId);
 
   useEffect(() => {
@@ -246,6 +284,23 @@ export default function CommandButtons({
         // just isn't wired into the toggle set since re-clicking should
         // resend, not collapse a stale confirmation.
         setQueryResult({ commandType: type, data: result || {} });
+      } else if (type === "list_folder") {
+        if (result?.ok) {
+          setFilesPath(result.path as string);
+          setFilesEntries((result.entries as Array<Record<string, unknown>>) ?? []);
+          setFilesParent((result.parent as string | null) ?? null);
+          setFilesDrives((result.drives as string[]) ?? []);
+          setFilesError(null);
+        } else {
+          setFilesError((result?.error as string) ?? "Couldn't list that folder");
+        }
+      } else if (type === "fetch_file") {
+        if (result?.ok && result.content_base64) {
+          downloadBase64File(result.content_base64 as string, result.filename as string);
+          setFilesError(null);
+        } else {
+          setFilesError((result?.error as string) ?? "Couldn't fetch that file");
+        }
       } else if (type === "shutdown" || type === "restart") {
         setShutdownPending(type);
         setShutdownDeadline(Date.now() + SHUTDOWN_GRACE_SECONDS * 1000);
@@ -372,46 +427,83 @@ export default function CommandButtons({
         ))}
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {ACTIONS.filter((action) => action.category === activeTab).map((action) => (
-          <button
-            key={action.type}
-            disabled={!online || isBusy(action.type)}
-            onClick={() => handleActionClick(action)}
-            className="text-sm px-3 py-1.5 rounded-lg border border-line bg-base hover:border-accent
-              disabled:opacity-40 disabled:cursor-not-allowed transition"
-          >
-            {isBusy(action.type)
-              ? sendCommand.isPending
-                ? "Sending..."
-                : "Waiting for agent..."
-              : action.label}
-          </button>
-        ))}
+      {activeTab !== "tools" && (
+        <div className="flex flex-wrap gap-2">
+          {ACTIONS.filter((action) => action.category === activeTab).map((action) => (
+            <button
+              key={action.type}
+              disabled={!online || isBusy(action.type)}
+              onClick={() => handleActionClick(action)}
+              className="text-sm px-3 py-1.5 rounded-lg border border-line bg-base hover:border-accent
+                disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              {isBusy(action.type)
+                ? sendCommand.isPending
+                  ? "Sending..."
+                  : "Waiting for agent..."
+                : action.label}
+            </button>
+          ))}
 
-        {shutdownPending && (
-          <button
-            disabled={!online || isBusy("cancel_shutdown")}
-            onClick={() => dispatch("cancel_shutdown")}
-            className="text-sm px-3 py-1.5 rounded-lg border border-red-500 text-red-500 bg-base hover:bg-red-500/10 disabled:opacity-40 transition"
-          >
-            {isBusy("cancel_shutdown")
-              ? "Cancelling..."
-              : `Cancel ${shutdownPending} (${secondsLeft}s left)`}
-          </button>
-        )}
+          {shutdownPending && (
+            <button
+              disabled={!online || isBusy("cancel_shutdown")}
+              onClick={() => dispatch("cancel_shutdown")}
+              className="text-sm px-3 py-1.5 rounded-lg border border-red-500 text-red-500 bg-base hover:bg-red-500/10 disabled:opacity-40 transition"
+            >
+              {isBusy("cancel_shutdown")
+                ? "Cancelling..."
+                : `Cancel ${shutdownPending} (${secondsLeft}s left)`}
+            </button>
+          )}
+        </div>
+      )}
 
-        <button
-          onClick={() => {
-            // Toggle, same pattern as the query-type command buttons above.
-            setShowHistory((s) => !s);
-            setHistoryPage(0);
-          }}
-          className="text-sm px-3 py-1.5 rounded-lg border border-line bg-base hover:border-accent transition"
-        >
-          {showHistory ? "Hide history" : "History"}
-        </button>
-      </div>
+      {/* Tools — deliberately its own category, not squeezed into
+          Actions/Status/Power. These aren't single dispatch-and-done
+          commands like the others; each one opens a small persistent
+          panel with its own back-and-forth (history pages, playback
+          controls, folder navigation, chat) rather than firing once and
+          showing one result. */}
+      {activeTab === "tools" && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => {
+              setShowHistory((s) => !s);
+              setHistoryPage(0);
+            }}
+            className="text-sm px-3 py-1.5 rounded-lg border border-line bg-base hover:border-accent transition"
+          >
+            {showHistory ? "Hide history" : "History"}
+          </button>
+
+          <button
+            disabled={!online}
+            onClick={() => {
+              if (!showFiles) {
+                setFilesPath(null);
+                setFilesEntries(null);
+                setFilesError(null);
+                setFilesParent(null);
+                setFilesDrives([]);
+                dispatch("list_folder", {});
+              }
+              setShowFiles((s) => !s);
+            }}
+            className="text-sm px-3 py-1.5 rounded-lg border border-line bg-base hover:border-accent disabled:opacity-40 disabled:cursor-not-allowed transition"
+          >
+            {showFiles ? "Hide files" : "Files"}
+          </button>
+
+          <button
+            disabled={!online}
+            onClick={() => setShowChat((s) => !s)}
+            className="text-sm px-3 py-1.5 rounded-lg border border-line bg-base hover:border-accent disabled:opacity-40 disabled:cursor-not-allowed transition"
+          >
+            {showChat ? "Hide chat" : "Chat"}
+          </button>
+        </div>
+      )}
 
       {lastFailure && (
         <div className="mt-2">
@@ -508,6 +600,100 @@ export default function CommandButtons({
           )}
         </div>
       )}
+
+      {showFiles && (
+        <div className="mt-2 text-sm bg-base border border-line rounded-lg p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <button
+              disabled={!filesParent || isBusy("list_folder")}
+              onClick={() => filesParent && dispatch("list_folder", { path: filesParent })}
+              className="text-xs px-2 py-1 rounded-md border border-line hover:border-accent disabled:opacity-30 disabled:cursor-not-allowed transition"
+              title="Up to parent folder"
+            >
+              ⬆ Back
+            </button>
+            {filesPath && (
+              <p className="text-xs text-muted truncate mono flex-1">{filesPath}</p>
+            )}
+          </div>
+
+          {filesDrives.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {filesDrives.map((drive) => (
+                <button
+                  key={drive}
+                  onClick={() => dispatch("list_folder", { path: drive })}
+                  className={`text-[11px] px-2 py-0.5 rounded-md border transition ${
+                    filesPath?.toUpperCase().startsWith(drive.toUpperCase())
+                      ? "border-accent text-accent"
+                      : "border-line hover:border-accent"
+                  }`}
+                >
+                  {drive}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {filesError && <p className="text-danger text-xs mb-2">{filesError}</p>}
+          {isBusy("list_folder") ? (
+            <p className="text-muted text-xs">Loading...</p>
+          ) : (
+            <table className="w-full text-xs" style={{ tableLayout: "fixed" }}>
+              <tbody>
+                {filesEntries?.map((entry) => (
+                  <tr key={entry.name as string} className="border-t border-line">
+                    <td className="py-1 pr-2">
+                      {entry.is_dir ? (
+                        <button
+                          className="text-left hover:text-accent transition truncate"
+                          onClick={() => {
+                            const nextPath = filesPath
+                              ? `${filesPath}\\${entry.name as string}`
+                              : (entry.name as string);
+                            dispatch("list_folder", { path: nextPath });
+                          }}
+                        >
+                          📁 {entry.name as string}
+                        </button>
+                      ) : (
+                        <span className="truncate">{entry.name as string}</span>
+                      )}
+                    </td>
+                    <td className="py-1 pr-2 text-muted mono" style={{ width: "70px" }}>
+                      {entry.is_dir
+                        ? ""
+                        : `${Math.max(1, Math.round(((entry.size_bytes as number) ?? 0) / 1024))} KB`}
+                    </td>
+                    <td className="py-1" style={{ width: "50px" }}>
+                      {!entry.is_dir && (
+                        <button
+                          className="text-[11px] px-2 py-0.5 rounded-md border border-line hover:border-accent transition"
+                          onClick={() => {
+                            const filePath = filesPath
+                              ? `${filesPath}\\${entry.name as string}`
+                              : (entry.name as string);
+                            dispatch("fetch_file", { path: filePath });
+                          }}
+                        >
+                          Fetch
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {filesEntries?.length === 0 && (
+                  <tr>
+                    <td className="py-2 text-muted">Empty folder.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {showChat && <ChatPanel machineId={machineId} />}
 
       {queryResult && (
         <div className="mt-2 text-sm bg-base border border-line rounded-lg p-3 max-h-56 overflow-auto">
@@ -669,6 +855,39 @@ export default function CommandButtons({
                   ))}
                 </tbody>
               </table>
+            </>
+          )}
+          {queryResult.commandType === "health_check" && (
+            <>
+              <p className="mb-2">
+                {queryResult.data.overall === "ok" ? (
+                  <span className="text-online">All good — no issues found</span>
+                ) : queryResult.data.overall === "warning" ? (
+                  <span className="text-amber-500">Needs attention</span>
+                ) : (
+                  <span className="text-danger">Critical issue found</span>
+                )}
+              </p>
+              {(queryResult.data.issues as Array<Record<string, unknown>> | undefined)?.map((issue, i) => (
+                <div
+                  key={i}
+                  className={`text-xs rounded-md px-2 py-1.5 mb-1.5 ${
+                    issue.severity === "critical"
+                      ? "bg-danger/10 text-danger"
+                      : "bg-amber-500/10 text-amber-500"
+                  }`}
+                >
+                  <span className="font-medium">{issue.label as string}</span>
+                  <span className="opacity-80"> — {issue.detail as string}</span>
+                </div>
+              ))}
+              {(queryResult.data.issues as unknown[] | undefined)?.length === 0 && (
+                <p className="text-muted text-xs">
+                  CPU {(queryResult.data.cpu_avg as number) ?? "?"}% · RAM{" "}
+                  {(queryResult.data.ram_avg as number) ?? "?"}% (averaged over the last{" "}
+                  {Math.max(1, Math.round((((queryResult.data.sample_count as number) ?? 0) * 15) / 60))} min)
+                </p>
+              )}
             </>
           )}
           {queryResult.commandType === "send_message" && (

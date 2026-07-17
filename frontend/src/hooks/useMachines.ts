@@ -152,3 +152,61 @@ export function useAuditLogs() {
     refetchInterval: 15_000,
   });
 }
+
+// --- Bulk actions: reuses the same per-machine send endpoint, just fired
+// at several machines at once rather than adding a separate batch API. ---
+export function useSendBulkCommand() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      machineIds: string[];
+      command_type: string;
+      payload?: Record<string, unknown>;
+    }) => {
+      const results = await Promise.allSettled(
+        input.machineIds.map((id) =>
+          api.post(`/machines/${id}/commands`, {
+            command_type: input.command_type,
+            payload: input.payload,
+          })
+        )
+      );
+      return {
+        succeeded: results.filter((r) => r.status === "fulfilled").length,
+        failed: results.filter((r) => r.status === "rejected").length,
+      };
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["machines"] }),
+  });
+}
+
+// --- Two-way chat ---
+export interface ChatMessageEntry {
+  id: string;
+  sender: "admin" | "agent";
+  message: string;
+  created_at: string;
+}
+
+export function useChatHistory(machineId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["chat", machineId],
+    queryFn: async () => {
+      const { data } = await api.get<ChatMessageEntry[]>(`/machines/${machineId}/chat`);
+      return data;
+    },
+    enabled,
+    refetchInterval: enabled ? 4_000 : false, // only poll while the panel's actually open
+  });
+}
+
+export function useSendChat(machineId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (message: string) => {
+      const { data } = await api.post(`/machines/${machineId}/chat`, { message });
+      return data as ChatMessageEntry;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["chat", machineId] }),
+  });
+}

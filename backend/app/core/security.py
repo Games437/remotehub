@@ -102,6 +102,31 @@ def verify_command_signature(
     return True, ""
 
 
+# ---------------------------------------------------------------------------
+# Two-way chat — agent replies arrive over plain HTTP (not the websocket),
+# so they need their own auth: the agent HMAC-signs with its existing
+# secret, same scheme as the command signature above, just over the chat
+# message instead of a command type.
+# ---------------------------------------------------------------------------
+def sign_chat_reply(machine_secret: str, message: str, timestamp: int, nonce: str) -> str:
+    msg = f"{message}:{timestamp}:{nonce}".encode()
+    return hmac.new(machine_secret.encode(), msg, hashlib.sha256).hexdigest()
+
+
+def verify_chat_reply(
+    machine_secret: str, message: str, timestamp: int, nonce: str, signature: str
+) -> tuple[bool, str]:
+    now = int(time.time())
+    if abs(now - timestamp) > settings.COMMAND_TIMESTAMP_SKEW_SECONDS:
+        return False, "timestamp outside allowed skew (stale or clock drift)"
+
+    expected = sign_chat_reply(machine_secret, message, timestamp, nonce)
+    if not hmac.compare_digest(expected, signature):
+        return False, "signature mismatch"
+
+    return True, ""
+
+
 def generate_nonce() -> str:
     return secrets.token_hex(16)
 

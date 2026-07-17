@@ -4,6 +4,29 @@ machine — they just report back, which is the main substitute for not
 having a live view of the screen: instead of looking, you ask.
 """
 import platform
+import time
+from collections import deque
+
+# Rolling window of recent (timestamp, cpu, ram) samples — recorded once
+# per periodic status report (every ~15s, see client.py), read back here
+# when health_check() runs. This is what makes health_check "was CPU
+# sustained high over the last couple minutes" instead of "was CPU high
+# in the one instant someone happened to click the button" — a single
+# snapshot is a coin flip, an average over a real window isn't.
+_HISTORY_MAXLEN = 8  # ~2 minutes at the 15s status interval
+_history: deque = deque(maxlen=_HISTORY_MAXLEN)
+
+
+def record_sample(cpu: float, ram: float) -> None:
+    _history.append((time.time(), cpu, ram))
+
+
+def _rolling_averages() -> tuple[float | None, float | None]:
+    if not _history:
+        return None, None
+    cpu_avg = sum(s[1] for s in _history) / len(_history)
+    ram_avg = sum(s[2] for s in _history) / len(_history)
+    return round(cpu_avg, 1), round(ram_avg, 1)
 
 
 def get_idle_time() -> dict:
@@ -322,3 +345,90 @@ def get_system_info() -> dict:
         info["partial_error"] = str(exc)  # hostname/os/cpu/gpu still returned even if psutil hiccups
 
     return info
+
+
+# Thresholds — deliberately simple, tune here if they turn out too
+# noisy/quiet in practice.
+_DISK_WARN_PERCENT = 80
+_DISK_CRITICAL_PERCENT = 90
+_RAM_WARN_PERCENT = 85
+_CPU_WARN_PERCENT = 80
+_UPTIME_WARN_DAYS = 7
+_LATENCY_WARN_MS = 200
+
+
+def health_check() -> dict:
+    """One combined verdict instead of separate CPU/RAM/disk numbers that
+    just repeat what's already sitting on the dashboard card at all
+    times — this is the part the card *doesn't* show: a couple of
+    minutes of trend, plus disk/uptime/network folded into a single
+    ok/warning/critical read."""
+    issues = []
+
+    cpu_avg, ram_avg = _rolling_averages()
+    if cpu_avg is not None and cpu_avg >= _CPU_WARN_PERCENT:
+        issues.append({
+            "severity": "warning",
+            "label": "CPU sustained high",
+            "detail": f"{cpu_avg}% average over the last ~2 minutes",
+        })
+    if ram_avg is not None and ram_avg >= _RAM_WARN_PERCENT:
+        issues.append({
+            "severity": "warning",
+            "label": "RAM sustained high",
+            "detail": f"{ram_avg}% average over the last ~2 minutes",
+        })
+
+    sys_info = get_system_info()
+    for drive in sys_info.get("drives", []):
+        percent = drive.get("percent", 0)
+        if percent >= _DISK_CRITICAL_PERCENT:
+            issues.append({
+                "severity": "critical",
+                "label": f"Disk {drive['drive']} almost full",
+                "detail": f"{percent}% used",
+            })
+        elif percent >= _DISK_WARN_PERCENT:
+            issues.append({
+                "severity": "warning",
+                "label": f"Disk {drive['drive']} filling up",
+                "detail": f"{percent}% used",
+            })
+
+    uptime_days = (sys_info.get("uptime_seconds") or 0) / 86400
+    if uptime_days >= _UPTIME_WARN_DAYS:
+        issues.append({
+            "severity": "warning",
+            "label": "Long uptime",
+            "detail": f"{round(uptime_days, 1)} days — a restart might help",
+        })
+
+    net = get_network_status()
+    if not net.get("connected"):
+        issues.append({
+            "severity": "critical",
+            "label": "No network connection",
+            "detail": net.get("error", "not connected"),
+        })
+    elif (net.get("latency_ms") or 0) >= _LATENCY_WARN_MS:
+        issues.append({
+            "severity": "warning",
+            "label": "High network latency",
+            "detail": f"{net['latency_ms']}ms",
+        })
+
+    if any(i["severity"] == "critical" for i in issues):
+        overall = "critical"
+    elif issues:
+        overall = "warning"
+    else:
+        overall = "ok"
+
+    return {
+        "ok": True,
+        "overall": overall,
+        "issues": issues,
+        "cpu_avg": cpu_avg,
+        "ram_avg": ram_avg,
+        "sample_count": len(_history),
+    }

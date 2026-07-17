@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { logout } from "../hooks/useAuth";
-import { useGeneratePairCode, useMachines } from "../hooks/useMachines";
+import { useGeneratePairCode, useMachines, useSendBulkCommand } from "../hooks/useMachines";
 import MachineCard from "../components/MachineCard";
 
 function AddMachineModal({ onClose }: { onClose: () => void }) {
@@ -61,9 +61,63 @@ function AddMachineModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+function BulkMessageModal({
+  onSend,
+  onClose,
+}: {
+  onSend: (message: string) => void;
+  onClose: () => void;
+}) {
+  const [message, setMessage] = useState("");
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-20">
+      <div className="bg-panel border border-line rounded-xl p-6 w-full max-w-sm">
+        <h2 className="font-medium mb-3">Send message to selected machines</h2>
+        <textarea
+          autoFocus
+          rows={3}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Save your work, restarting soon"
+          className="w-full mb-4 bg-base border border-line rounded-lg px-3 py-2 outline-none focus:border-accent resize-none"
+        />
+        <div className="flex gap-2">
+          <button className="text-sm text-muted" onClick={onClose}>Cancel</button>
+          <button
+            className="ml-auto bg-accent rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-40"
+            disabled={!message.trim()}
+            onClick={() => {
+              onSend(message.trim());
+              onClose();
+            }}
+          >
+            Send to all
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { data: machines, isLoading } = useMachines();
   const [showAdd, setShowAdd] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [showBulkMessage, setShowBulkMessage] = useState(false);
+  const sendBulk = useSendBulkCommand();
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function runBulk(command_type: string, payload?: Record<string, unknown>) {
+    sendBulk.mutate({ machineIds: Array.from(selected), command_type, payload });
+  }
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-10">
@@ -104,13 +158,58 @@ export default function Dashboard() {
         </div>
       )}
 
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 mb-4 px-4 py-2.5 bg-panel border border-line rounded-xl">
+          <span className="text-sm text-muted whitespace-nowrap">{selected.size} selected</span>
+          <div className="w-px h-5 bg-line" />
+          <button
+            disabled={sendBulk.isPending}
+            onClick={() => runBulk("screenshot")}
+            className="text-sm px-3 py-1 rounded-lg border border-line hover:border-accent transition"
+          >
+            Screenshot
+          </button>
+          <button
+            disabled={sendBulk.isPending}
+            onClick={() => runBulk("lock")}
+            className="text-sm px-3 py-1 rounded-lg border border-line hover:border-accent transition"
+          >
+            Lock
+          </button>
+          <button
+            disabled={sendBulk.isPending}
+            onClick={() => setShowBulkMessage(true)}
+            className="text-sm px-3 py-1 rounded-lg border border-line hover:border-accent transition"
+          >
+            Message
+          </button>
+          <button
+            className="ml-auto text-sm text-muted hover:text-text transition"
+            onClick={() => setSelected(new Set())}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {machines?.map((m) => (
-          <MachineCard key={m.id} machine={m} />
+          <MachineCard
+            key={m.id}
+            machine={m}
+            selected={selected.has(m.id)}
+            onToggleSelect={() => toggleSelect(m.id)}
+          />
         ))}
       </div>
 
       {showAdd && <AddMachineModal onClose={() => setShowAdd(false)} />}
+      {showBulkMessage && (
+        <BulkMessageModal
+          onSend={(message) => runBulk("send_message", { message })}
+          onClose={() => setShowBulkMessage(false)}
+        />
+      )}
     </div>
   );
 }

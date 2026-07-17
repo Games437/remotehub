@@ -232,11 +232,14 @@ def send_message(payload: dict) -> dict:
     labeled as coming from an admin — unlike `notify()` above, which is an
     unstyled toast that disappears on its own whether or not anyone saw it.
 
-    Runs in its own thread rather than blocking here: the native
-    MessageBoxW this used to call blocks the calling thread until the
-    person clicks OK, which could stall this agent's command handling
-    indefinitely if nobody's at the keyboard. This acknowledges as soon as
-    the dialog is *shown*, not once it's dismissed.
+    Runs as a Toplevel on the agent's single shared Tkinter thread (see
+    ui_thread.py) rather than spinning up its own independent Tk() root —
+    having more than one of those across separate threads is what used to
+    make the whole agent process crash unpredictably. This acknowledges
+    as soon as the dialog is *shown*, not once it's dismissed — the
+    native MessageBoxW this used to call blocked the calling thread until
+    someone clicked OK, which could stall command handling indefinitely
+    if nobody's at the keyboard.
     """
     if platform.system() != "Windows":
         return {"ok": False, "error": "send_message() is implemented for Windows only"}
@@ -245,41 +248,39 @@ def send_message(payload: dict) -> dict:
     if not message:
         return {"ok": False, "error": "payload must include 'message'"}
 
-    def _show_dialog():
+    def _show_dialog(root):
         import tkinter as tk
 
-        root = tk.Tk()
-        root.title("RemoteHub")
-        root.attributes("-topmost", True)
-        root.resizable(False, False)
-        root.configure(bg="#14161b")
+        window = tk.Toplevel(root)
+        window.title("RemoteHub")
+        window.attributes("-topmost", True)
+        window.resizable(False, False)
+        window.configure(bg="#14161b")
 
         width, height = 380, 200
-        x = (root.winfo_screenwidth() - width) // 2
-        y = (root.winfo_screenheight() - height) // 2
-        root.geometry(f"{width}x{height}+{x}+{y}")
+        x = (window.winfo_screenwidth() - width) // 2
+        y = (window.winfo_screenheight() - height) // 2
+        window.geometry(f"{width}x{height}+{x}+{y}")
 
         tk.Label(
-            root, text="Message from Admin", font=("Segoe UI", 13, "bold"),
+            window, text="Message from Admin", font=("Segoe UI", 13, "bold"),
             bg="#14161b", fg="#5B8DEF",
         ).pack(pady=(20, 6), padx=20, anchor="w")
 
         tk.Label(
-            root, text=message, font=("Segoe UI", 10), bg="#14161b", fg="#E6E8EC",
+            window, text=message, font=("Segoe UI", 10), bg="#14161b", fg="#E6E8EC",
             wraplength=336, justify="left",
         ).pack(pady=(0, 20), padx=20, anchor="w")
 
         tk.Button(
-            root, text="OK", command=root.destroy, width=10,
+            window, text="OK", command=window.destroy, width=10,
             bg="#5B8DEF", fg="white", activebackground="#4a78d4",
             relief="flat", font=("Segoe UI", 10), cursor="hand2",
         ).pack(pady=(0, 20))
 
-        root.mainloop()
-
     try:
-        import threading
-        threading.Thread(target=_show_dialog, daemon=True).start()
+        from agent import ui_thread
+        ui_thread.run_on_ui_thread(_show_dialog)
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
 

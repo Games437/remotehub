@@ -17,9 +17,9 @@ export default function Login() {
         }}
       >
         <h1 className="text-xl font-semibold mb-1">RemoteHub</h1>
-        <p className="text-muted text-sm mb-6">เข้าสู่ระบบเพื่อจัดการเครื่องคอมพิวเตอร์ของคุณ</p>
+        <p className="text-muted text-sm mb-6">Sign in to manage your computers</p>
 
-        <label className="block text-sm text-muted mb-1">อีเมล</label>
+        <label className="block text-sm text-muted mb-1">Email</label>
         <input
           className="w-full mb-4 bg-base border border-line rounded-lg px-3 py-2 outline-none focus:border-accent"
           type="email"
@@ -28,7 +28,7 @@ export default function Login() {
           required
         />
 
-        <label className="block text-sm text-muted mb-1">รหัสผ่าน</label>
+        <label className="block text-sm text-muted mb-1">Password</label>
         <input
           className="w-full mb-6 bg-base border border-line rounded-lg px-3 py-2 outline-none focus:border-accent"
           type="password"
@@ -38,7 +38,7 @@ export default function Login() {
         />
 
         {login.isError && (
-          <p className="text-danger text-sm mb-4">อีเมลหรือรหัสผ่านไม่ถูกต้อง</p>
+          <p className="text-danger text-sm mb-4">Incorrect email or password</p>
         )}
 
         <button
@@ -46,11 +46,11 @@ export default function Login() {
           type="submit"
           disabled={login.isPending}
         >
-          {login.isPending ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
+          {login.isPending ? "Signing in..." : "Sign in"}
         </button>
 
         <p className="text-muted text-sm mt-6 text-center">
-          ยังไม่มีบัญชี? <Link to="/register" className="text-accent">สร้างบัญชีใหม่</Link>
+          Don't have an account? <Link to="/register" className="text-accent">Create one</Link>
         </p>
       </form>
     </div>

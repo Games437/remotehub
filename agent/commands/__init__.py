@@ -1,4 +1,4 @@
-from agent.commands import media_web, screenshot, system, telemetry
+from agent.commands import file_ops, media_web, screenshot, system, telemetry
 
 DISPATCH = {
     "lock": lambda payload: system.lock(),
@@ -20,4 +20,7 @@ DISPATCH = {
     "get_system_info": lambda payload: telemetry.get_system_info(),
     "kill_process": lambda payload: system.kill_process(payload),
     "send_message": media_web.send_message,
+    "health_check": lambda payload: telemetry.health_check(),
+    "list_folder": lambda payload: file_ops.list_folder(payload),
+    "fetch_file": lambda payload: file_ops.fetch_file(payload),
 }

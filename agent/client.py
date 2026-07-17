@@ -29,7 +29,7 @@ import psutil
 import requests
 import websockets
 
-from agent import config
+from agent import chat_window, config
 from agent.commands import DISPATCH, telemetry
 from agent.security import sign_challenge, verify_command
 
@@ -124,10 +124,17 @@ def _collect_status() -> dict:
     idle_result = telemetry.get_idle_time()
     idle_seconds = int(idle_result["idle_seconds"]) if idle_result.get("ok") else None
 
+    cpu = psutil.cpu_percent(interval=None)
+    ram = psutil.virtual_memory().percent
+    # Feeds health_check()'s rolling average — recorded here so it builds
+    # up continuously in the background rather than only existing for the
+    # ~1 second someone happens to be looking at it.
+    telemetry.record_sample(cpu, ram)
+
     return {
         "type": "status",
-        "cpu": psutil.cpu_percent(interval=None),
-        "ram": psutil.virtual_memory().percent,
+        "cpu": cpu,
+        "ram": ram,
         "disk": psutil.disk_usage("/").percent,
         "os": f"{platform.system()} {platform.release()}",
         "ip": _local_ip(),
@@ -288,6 +295,9 @@ async def _run() -> None:
                 if msg.get("type") == "command":
                     print(f"  received command: {msg.get('command_type')}")
                     await _handle_command(ws, secret, msg)
+                elif msg.get("type") == "chat":
+                    print("  received chat message")
+                    chat_window.push_incoming(msg.get("message", ""), machine_uid, secret)
 
         except websockets.ConnectionClosed as exc:
             if _stop_event.is_set():

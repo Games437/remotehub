@@ -8,6 +8,13 @@ def sign_challenge(machine_uid: str, secret: str, nonce: str) -> str:
     return hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
 
 
+def sign_chat_reply(secret: str, message: str, timestamp: int, nonce: str) -> str:
+    """Same HMAC scheme as sign_challenge, just over a chat reply instead
+    of the login handshake — see backend core/security.verify_chat_reply."""
+    msg = f"{message}:{timestamp}:{nonce}".encode()
+    return hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()
+
+
 def verify_command(secret: str, command_type: str, timestamp: int, nonce: str, signature: str, max_skew: int = 30):
     """
     The agent independently re-derives the expected signature before

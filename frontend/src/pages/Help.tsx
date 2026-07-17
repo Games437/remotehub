@@ -68,12 +68,23 @@ export default function Help() {
           <div>
             <p className="font-medium text-text">การส่งคำสั่ง</p>
             <p className="text-muted">
-              การ์ดของแต่ละเครื่องแบ่งปุ่มคำสั่งเป็น 3 หมวดแบบ tab —{" "}
+              การ์ดของแต่ละเครื่องแบ่งปุ่มคำสั่งเป็น 4 หมวดแบบ tab —{" "}
               <strong className="text-text">Actions</strong>,{" "}
-              <strong className="text-text">Status</strong>, และ{" "}
-              <strong className="text-text">Power</strong> — คลิกชื่อหมวดเพื่อสลับดู
+              <strong className="text-text">Status</strong>,{" "}
+              <strong className="text-text">Power</strong>, และ{" "}
+              <strong className="text-text">Tools</strong> — คลิกชื่อหมวดเพื่อสลับดู
               ปุ่มในหมวดนั้น เครื่องต้องขึ้นสถานะ "Online" ก่อนถึงจะส่งคำสั่งได้ —
-              ถ้ายังออฟไลน์อยู่ปุ่มจะกดไม่ได้
+              ถ้ายังออฟไลน์อยู่ปุ่มจะกดไม่ได้ (หมวด Tools เปิด/ปิด panel ได้แม้เครื่องออฟไลน์
+              บางส่วน เช่นดูประวัติเก่า แต่ปุ่มที่ต้องคุยกับเครื่องจริงจะกดไม่ได้เหมือนหมวดอื่น)
+            </p>
+          </div>
+          <div>
+            <p className="font-medium text-text">หมวด Tools คืออะไร</p>
+            <p className="text-muted">
+              รวม <strong className="text-text">History, Files, Chat</strong>{" "}
+              ไว้ด้วยกัน — ต่างจากปุ่มในหมวดอื่นตรงที่ทั้ง 4 อย่างนี้เปิดเป็น panel ค้างไว้
+              มีการโต้ตอบหลายขั้นตอนข้างใน (เลื่อนหน้าประวัติ, กดเล่น/หยุดเพลง, ไล่เข้าโฟลเดอร์,
+              พิมพ์คุย) ไม่ใช่กดครั้งเดียวจบเหมือนคำสั่งทั่วไป เลยแยกไว้เป็นหมวดของตัวเอง
             </p>
           </div>
 
@@ -122,6 +133,11 @@ export default function Help() {
                 <span className="text-text">System info</span> — สเปคเครื่อง (CPU รุ่นจริง, การ์ดจอ,
                 RAM, OS, uptime) พร้อมพื้นที่ดิสก์แต่ละไดรฟ์ ข้อมูลนี้แทบไม่เปลี่ยน ไม่ต้องเช็คบ่อย
               </li>
+              <li>
+                <span className="text-text">Health check</span> — สรุปผลตัดสินเดียว (ok/มีข้อสังเกต/วิกฤต)
+                ผสาน CPU/RAM เฉลี่ยย้อนหลัง ~2 นาที (ไม่ใช่ snapshot วูบเดียวเหมือนตัวเลขบนการ์ด)
+                รวมกับดิสก์ใกล้เต็ม, uptime นานผิดปกติ, และสถานะเน็ต เข้าด้วยกัน
+              </li>
             </ul>
             <p className="text-muted text-xs mt-2">
               ปุ่มกลุ่มนี้กดซ้ำที่ปุ่มเดิมอีกครั้งเพื่อ<strong className="text-text">ย่อผลลัพธ์ที่แสดงอยู่</strong>ได้เลย
@@ -151,13 +167,43 @@ export default function Help() {
           </div>
 
           <div>
-            <p className="font-medium text-text">History</p>
+            <p className="font-medium text-text">History (หมวด Tools)</p>
             <p className="text-muted">
-              ปุ่ม History อยู่ข้างๆ ปุ่มคำสั่งต่างๆ กดแล้วโชว์{" "}
+              กดแล้วโชว์{" "}
               <strong className="text-text">ประวัติคำสั่งทั้งหมดที่เคยส่งไปเครื่องนั้น</strong>{" "}
               (ชื่อคำสั่ง, สถานะ, เวลา) แบ่งหน้าทีละ 20 รายการเลื่อนดูก่อนหน้า/ถัดไปได้
               — ไม่ได้ส่งคำสั่งอะไรไปที่เครื่อง แค่ดึงประวัติที่มีอยู่แล้วมาโชว์ กดปุ่มซ้ำ
-              เพื่อย่อได้เหมือนปุ่มกลุ่ม Idle time/Processes ด้านบน
+              เพื่อย่อได้
+            </p>
+          </div>
+
+          <div>
+            <p className="font-medium text-text">Files (หมวด Tools)</p>
+            <p className="text-muted">
+              เรียกดูไฟล์/โฟลเดอร์บนเครื่องปลายทาง เริ่มจาก home folder ของผู้ใช้เป็นค่าเริ่มต้น
+              คลิกโฟลเดอร์เพื่อไล่เข้าไปดูข้างใน กดปุ่ม{" "}
+              <strong className="text-text">⬆ Back</strong> เพื่อย้อนกลับไปโฟลเดอร์แม่
+              หรือคลิกไดร์ฟ (C:\, D:\ ฯลฯ) ที่แสดงเป็นแถบด้านบนเพื่อกระโดดไปไดร์ฟอื่นได้เลย
+              กดปุ่ม Fetch ที่ไฟล์ไหนก็ได้เพื่อดาวน์โหลดกลับมา — จำกัดขนาดไฟล์ไม่เกิน 15 MB
+              ต่อครั้ง ถ้าใหญ่กว่านั้นจะแจ้ง error แทนที่จะพยายามส่ง
+            </p>
+          </div>
+
+          <div>
+            <p className="font-medium text-text">Chat (หมวด Tools)</p>
+            <p className="text-muted">
+              แชทสั้นๆ ระหว่างคุณกับเครื่องปลายทางแบบสองทาง ข้อความที่ส่งไปจะเด้งขึ้นเป็น
+              หน้าต่างเล็กๆ บนเครื่องนั้น (ค้างอยู่จนกว่าจะปิดเอง ไม่ใช่ popup ที่ต้องกด OK)
+              และฝั่งเครื่องปลายทางพิมพ์ตอบกลับมาได้ ประวัติแชทเก็บไว้ให้เลื่อนดูย้อนหลังได้
+            </p>
+          </div>
+
+          <div>
+            <p className="font-medium text-text">เลือกหลายเครื่องพร้อมกัน (Bulk actions)</p>
+            <p className="text-muted">
+              ติ๊กช่องข้างจุดสถานะของเครื่องที่ต้องการ (เลือกได้เฉพาะเครื่องที่ Online) — พอเลือก
+              อย่างน้อย 1 เครื่อง จะมีแถบคำสั่งลอยขึ้นมาด้านบน กด Screenshot/Lock/Message ครั้งเดียว
+              ยิงคำสั่งไปทุกเครื่องที่เลือกพร้อมกันทันที
             </p>
           </div>
 

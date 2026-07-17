@@ -1,6 +1,6 @@
 from app.models.user import User
 from app.models.machine import Machine, MachineAccess, PairingCode, MachineStatus, Role
-from app.models.command import Command, AuditLog, CommandType, CommandStatus
+from app.models.command import Command, AuditLog, ChatMessage, CommandType, CommandStatus
 
 __all__ = [
     "User",
@@ -11,6 +11,7 @@ __all__ = [
     "Role",
     "Command",
     "AuditLog",
+    "ChatMessage",
     "CommandType",
     "CommandStatus",
 ]

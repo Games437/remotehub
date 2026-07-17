@@ -29,6 +29,9 @@ class CommandType(str, enum.Enum):
     get_system_info = "get_system_info"
     kill_process = "kill_process"
     send_message = "send_message"
+    health_check = "health_check"
+    list_folder = "list_folder"
+    fetch_file = "fetch_file"
 
 
 class CommandStatus(str, enum.Enum):
@@ -73,6 +76,22 @@ class Command(Base):
         "Machine",
         back_populates="commands",
     )
+
+
+class ChatMessage(Base):
+    """Two-way chat between an admin (via dashboard) and a machine's agent.
+    Admin messages are pushed live over the websocket in addition to being
+    stored here; agent replies arrive via a separate machine-authenticated
+    HTTP endpoint (the agent's GUI runs on its own thread, independent of
+    the asyncio websocket loop — an HTTP POST is simpler and more robust
+    than bridging the two)."""
+    __tablename__ = "chat_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    machine_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("machines.id", ondelete="CASCADE"), nullable=False)
+    sender: Mapped[str] = mapped_column(String(10))  # "admin" | "agent"
+    message: Mapped[str] = mapped_column(String(2000))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class AuditLog(Base):
