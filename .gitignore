@@ -17,4 +17,6 @@ installer/build/
 installer/dist/
 
 # Secrets
-.env
+.envtruncate_render.py
+add_idle_column.py
+check_db.py
